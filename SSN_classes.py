@@ -2,7 +2,7 @@ import numpy as np
 from util import Euler2fixedpt
 
 #from SSN_power_spec import linear_power_spect_loop
-import SSN_power_spec
+#import SSN_power_spec
 
 # ============================  base classes ===================================
 
@@ -13,9 +13,13 @@ class _SSN_Base(object):
         self.Ne = Ne
         self.Ni = Ni
         self.N = self.Ne + self.Ni
-        self.EI = np.chararray((self.N,), itemsize=1)
-        self.EI[:Ne] = b"E"
-        self.EI[Ne:] = b"I"
+        #original code - not jax compatible
+        #self.EI = np.chararray((self.N,), itemsize=1)
+        #self.EI[:Ne] = b"E"
+        #self.EI[Ne:] = b"I"
+        
+        self.EI=[b"E"]*(self.Ne) + [b"I"]*(self.N - self.Ne)
+        
         if tau_vec is not None:
             self.tau_vec = tau_vec # rate time-consants of neurons. shape: (N,)
         # elif  not hasattr(self, "tau_vec"):
