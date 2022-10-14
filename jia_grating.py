@@ -30,8 +30,8 @@ class JiaGrating:
         self.ori_deg = ori_deg
         self.size = size
 
-        self.outer_radius = outer_radius
-        self.inner_radius = inner_radius
+        self.outer_radius = outer_radius #in pixels
+        self.inner_radius = inner_radius #in pixels
         self.pixel_per_degree = pixel_per_degree
         self.grating_contrast = grating_contrast
         self.phase = phase
