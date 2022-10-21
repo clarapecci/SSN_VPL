@@ -3,7 +3,7 @@ from util import Euler2fixedpt
 from jax import random
 
 class _SSN_Base(object):
-    def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None):
+    def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None, on_off=False):
         self.n = n
         self.k = k
         self.Ne = Ne
@@ -16,6 +16,8 @@ class _SSN_Base(object):
         
         ## JAX CHANGES ##
         self.EI=[b"E"]*(self.Ne) + [b"I"]*(self.N - self.Ne)
+        if on_off:
+            self.EI = self.EI + self.EI
         self.condition= np.array([bool(self.EI[x]==b"E") for x in range(len(self.EI))])
         
         if tau_vec is not None:
@@ -366,9 +368,14 @@ class _SSN_AMPAGABA_Base(_SSN_Base):
 class SSN2DTopoV1(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, **kwargs):
+    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, on_off=False, **kwargs):
         Ni = Ne = grid_pars.gridsize_Nx**2
+        self.on_off = on_off
         tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
+        
+        if self.on_off:
+            tau_vec = np.tile(tau_vec, (2,))
+        
 
         super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
                                     tau_vec=tau_vec, **kwargs)
@@ -476,8 +483,13 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.x_map = X
         self.y_map = Y
-        self.x_vec = np.tile(X.ravel(), (2,))
-        self.y_vec = np.tile(Y.ravel(), (2,))
+        if self.on_off:
+            self.x_vec = np.tile(X.ravel(), (4,))
+            self.y_vec = np.tile(Y.ravel(), (4,))
+        else:
+            self.x_vec = np.tile(X.ravel(), (2,))
+            self.y_vec = np.tile(Y.ravel(), (2,))
+        
         return self.x_map, self.y_map
 
     def _make_orimap(self, hyper_col=None, nn=30, X=None, Y=None):
@@ -517,7 +529,10 @@ class SSN2DTopoV1(_SSN_Base):
         # #for debugging/testing:
         # self.ori_map = 180 * (self.y_map - self.y_map.min())/(self.y_map.max() - self.y_map.min())
         # self.ori_map[self.ori_map.shape[0]//2+1:,:] = 180
-        self.ori_vec = np.tile(self.ori_map.ravel(), (2,))
+        if self.on_off:
+            self.ori_vec = np.tile(self.ori_map.ravel(), (4,))
+        else:
+            self.ori_vec = np.tile(self.ori_map.ravel(), (2,))
         return self.ori_map
 
     def _make_distances(self, PERIODIC):
@@ -527,9 +542,15 @@ class SSN2DTopoV1(_SSN_Base):
             absdiff_x = absdiff_y = lambda d_x: absdiff_ring(d_x, Lx + self.grid_pars.dx)
         else:
             absdiff_x = absdiff_y = lambda d_x: np.abs(d_x)
-        xs = np.reshape(self.x_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
-        ys = np.reshape(self.y_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
-        oris = np.reshape(self.ori_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
+        if self.on_off:
+                xs = np.reshape(self.x_vec, (4, self.Ne, 1)) # (cell-type, grid-location, None)
+                ys = np.reshape(self.y_vec, (4, self.Ne, 1)) # (cell-type, grid-location, None)
+                oris = np.reshape(self.ori_vec, (4, self.Ne, 1)) # (cell-type, grid-location, None)
+        else:
+                xs = np.reshape(self.x_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
+                ys = np.reshape(self.y_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
+                oris = np.reshape(self.ori_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
+        
         # to generalize the next two lines, can replace 0's with a and b in range(2) (pre and post-synaptic cell-type indices)
         xy_dist = np.sqrt(absdiff_x(xs[0] - xs[0].T)**2 + absdiff_y(ys[0] - ys[0].T)**2)
         ori_dist = absdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1._Lring)
@@ -541,7 +562,7 @@ class SSN2DTopoV1(_SSN_Base):
     
     def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, Jnoise=0,
                 Jnoise_GAUSSIAN=True, MinSyn=1e-4, CellWiseNormalized=True,
-                                                    PERIODIC=True): #, prngKey=0):
+                                                    PERIODIC=True, on_off=False): #, prngKey=0):
         """
         make the full recurrent connectivity matrix W
         In:
@@ -609,6 +630,11 @@ class SSN2DTopoV1(_SSN_Base):
                 Wblks[a][b] = J_2x2[a, b] * W
 
         self.W = np.block(Wblks)
+        
+        if self.on_off:
+            B=np.ones((2,2))
+            self.W=np.kron(B, self.W)
+        
         return self.W
 
     def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
