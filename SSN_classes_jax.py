@@ -8,20 +8,25 @@ from SSN_classes_jax_on_only import _SSN_Base, _SSN_AMPAGABA_Base
 class SSN2DTopoV1_ONOFF(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, n, k, tauE, tauI, grid_pars,  conn_pars, **kwargs):
+    def __init__(self, ssn_pars, grid_pars,  conn_pars, J_2x2, s_2x2, **kwargs):
         self.Nc = grid_pars.gridsize_Nx**2 #number of columns
         Ni = Ne = 2 * self.Nc 
-        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
         
+        n=ssn_pars.n
+        k=ssn_pars.k
+        tauE= ssn_pars.tauE
+        tauI=ssn_pars.tauI
+        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
+        tau_s=ssn_pars.tau_s
   
         super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
                                     tau_vec=tau_vec, **kwargs)
-
+        
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
         self._make_maps(grid_pars)
         if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
-            self.make_W(**conn_pars)
+            self.make_W(J_2x2, s_2x2, **conn_pars)
 
     @property
     def neuron_params(self):
