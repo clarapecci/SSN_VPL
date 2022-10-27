@@ -1,7 +1,8 @@
-#import numpy as np
+
 
 import jax.numpy as np
 
+#####  ORIGINAL UTIL ####
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
@@ -33,8 +34,8 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         xplot = x_initial[inds][:,None]
 
     Nmax = int(np.round(Tmax/dt))
-    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else int(Nmax/2)
-    xvec = x_initial
+    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
+    xvec = np.asarray(x_initial) #added np.asarray
     CONVG = False
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
@@ -63,68 +64,14 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
 
     return xvec, CONVG
 
+### END OF ORIGINAL UTIL ###
 
 
-# this is copied from scipy.linalg, to make compatible with jax.numpy
-def toeplitz(c, r=None):
-    """
-    Construct a Toeplitz matrix.
-    The Toeplitz matrix has constant diagonals, with c as its first column
-    and r as its first row.  If r is not given, ``r == conjugate(c)`` is
-    assumed.
-    Parameters
-    ----------
-    c : array_like
-        First column of the matrix.  Whatever the actual shape of `c`, it
-        will be converted to a 1-D array.
-    r : array_like
-        First row of the matrix. If None, ``r = conjugate(c)`` is assumed;
-        in this case, if c[0] is real, the result is a Hermitian matrix.
-        r[0] is ignored; the first row of the returned matrix is
-        ``[c[0], r[1:]]``.  Whatever the actual shape of `r`, it will be
-        converted to a 1-D array.
-    Returns
-    -------
-    A : (len(c), len(r)) ndarray
-        The Toeplitz matrix. Dtype is the same as ``(c[0] + r[0]).dtype``.
-    See also
-    --------
-    circulant : circulant matrix
-    hankel : Hankel matrix
-    Notes
-    -----
-    The behavior when `c` or `r` is a scalar, or when `c` is complex and
-    `r` is None, was changed in version 0.8.0.  The behavior in previous
-    versions was undocumented and is no longer supported.
-    Examples
-    --------
-    >>> from scipy.linalg import toeplitz
-    >>> toeplitz([1,2,3], [1,4,5,6])
-    array([[1, 4, 5, 6],
-           [2, 1, 4, 5],
-           [3, 2, 1, 4]])
-    >>> toeplitz([1.0, 2+3j, 4-1j])
-    array([[ 1.+0.j,  2.-3.j,  4.+1.j],
-           [ 2.+3.j,  1.+0.j,  2.-3.j],
-           [ 4.-1.j,  2.+3.j,  1.+0.j]])
-    """
-    c = np.asarray(c).ravel()
-    if r is None:
-        r = c.conjugate()
-    else:
-        r = np.asarray(r).ravel()
-    # Form a 1D array of values to be used in the matrix, containing a reversed
-    # copy of r[1:], followed by c.
-    vals = np.concatenate((r[-1:0:-1], c))
-    a, b = np.ogrid[0:len(c), len(r) - 1:-1:-1]
-    indx = a + b
-    # `indx` is a 2D array of indices into the 1D array `vals`, arranged so
-    # that `vals[indx]` is the Toeplitz matrix.
-    return vals[indx]
 
+#### CREATE GABOR FILTERS ####
 class GaborFilter:
     
-    def __init__(self, x_i, y_i, k, sigma_g, theta, x_axis, y_axis, dx, dy, phase=0, conv_factor=None):
+    def __init__(self, x_i, y_i, k, sigma_g, theta, edge_deg, degree_per_pixel, phase=0, conv_factor=None):
         
         '''
         Gabor filter class.
@@ -143,11 +90,15 @@ class GaborFilter:
         else:
             self.x_i=x_i
             self.y_i=y_i
-        self.k=k #preferred spatial frequency
-        self.theta=theta*(np.pi/180) #preferred orientation - convert to radians
+        self.k=k 
+        self.theta=theta*(np.pi/180) 
         self.phase=phase 
         self.sigma_g=sigma_g
-        self.N_pixels=len(x_axis)
+        self.N_pixels=int(edge_deg*2/degree_per_pixel) +1 
+        
+        #create image axis
+        x_axis=np.linspace(-edge_deg, edge_deg, self.N_pixels, endpoint=True)  
+        y_axis=np.linspace(-edge_deg, edge_deg, self.N_pixels, endpoint=True)
         
         #construct filter as attribute
         self.filter = self.create_filter(x_axis, y_axis)
@@ -173,11 +124,10 @@ class GaborFilter:
         gaussian= np.exp(-0.5 *( diff_x**2 + diff_y**2)/self.sigma_g**2)
         
         return gaussian*spatial[::-1] #same convention as stimuli
-
     
     
     
-    
+##### CREATING GRATINGS ######    
 """
 Author: Samuel Bell (sjb326@cam.ac.uk) 
 jia_grating.py Copyright (c) 2020. All rights reserved.
@@ -210,8 +160,8 @@ class JiaGrating:
         self.ori_deg = ori_deg
         self.size = size
 
-        self.outer_radius = outer_radius #in pixels
-        self.inner_radius = inner_radius #in pixels
+        self.outer_radius = outer_radius #in degrees
+        self.inner_radius = inner_radius #in degrees
         self.pixel_per_degree = pixel_per_degree
         self.grating_contrast = grating_contrast
         self.phase = phase
@@ -268,11 +218,21 @@ class JiaGrating:
 
         return final_image
 
+
 class BW_Grating(JiaGrating):
+    '''
+    Sub-class of Jia Grating.
+    Sums stimuli over channels and option to crop stimulus field. 
+    '''
     
-    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter=0, snr=1.0, spatial_frequency=None, crop_f=None):
+    def __init__(self, ori_deg, outer_radius, inner_radius, degree_per_pixel, grating_contrast, edge_deg, phase=0, jitter=0, snr=1.0, k=None, crop_f=None):
         
         self.crop_f=crop_f
+        pixel_per_degree=1/degree_per_pixel
+        size=int(edge_deg*2 *pixel_per_degree) + 1
+        spatial_frequency = k*degree_per_pixel
+        
+        
          
         super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, spatial_frequency)
         
@@ -284,4 +244,88 @@ class BW_Grating(JiaGrating):
             image=image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]            
         return image
     
- 
+
+    
+    
+### FINDING CONSTANT FOR GABOR FILTERS ###
+def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, return_all=False):
+    '''
+    Find constant to multiply Gabor filters.
+    Input:
+        gabor_pars: Filter parameters - centre already specified in function
+        stimuli_pars: Stimuli parameters (high constrast and spanning all visual field)
+        indices: List of orientatins in degrees to calculate filter and corresponding stimuli
+    Output:
+        A: value of constant so that contrast = 100
+    '''
+    all_A=[]
+    all_gabors=[]
+    all_test_stimuli=[]
+    
+    for ori in indices:
+    
+        #generate Gabor filter and stimuli at orientation
+        gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=edge_deg, k=k, sigma_g=sigma_g, degree_per_pixel=degree_per_pixel)
+        test_grating=BW_Grating(ori_deg=ori, edge_deg=edge_deg, k=k, degree_per_pixel=degree_per_pixel, outer_radius=edge_deg*2, inner_radius=edge_deg*2, grating_contrast=0.99)
+        test_stimuli=test_grating.BW_image()
+
+        #multiply filter and stimuli
+        output_gabor=np.matmul(gabor.filter.ravel(), test_stimuli.ravel())
+        
+        
+        all_gabors.append(gabor.filter)
+        all_test_stimuli.append(test_stimuli)
+
+
+        #calculate value of A
+        A_value=100/(output_gabor) 
+
+        #create list of A
+        all_A.append(A_value)
+    
+    
+    #find average value of A
+    all_A=np.array(all_A)
+    A=all_A.mean()
+
+    all_gabors=np.array(all_gabors)
+    all_test_stimuli=np.array(all_test_stimuli)
+
+    print('Average A is {}'.format(A))
+    
+    if return_all==True:
+        output =  A , all_gabors, all_test_stimuli
+    else:
+        output=A
+    
+    return output
+
+
+
+#CREATE FILTERS
+def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pixel):
+    
+    e_filters=[] #array of filters
+
+    #Iterate over SSN map
+    for i in range(ssn.ori_map.shape[0]):
+        for j in range(ssn.ori_map.shape[1]):
+            gabor=GaborFilter(x_i=ssn.x_map[i,j], y_i=ssn.y_map[i,j], edge_deg=edge_deg, k=k, sigma_g=sigma_g, theta=ssn.ori_map[i,j], conv_factor=conv_factor, degree_per_pixel=degree_per_pixel)
+
+            e_filters.append(gabor.filter.ravel())
+    e_filters=np.array(e_filters)
+
+    #create inhibitory filters
+    i_constant= 1
+    i_filters=np.multiply(i_constant, e_filters)
+    all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
+
+    #create filters with phase equal to pi
+    off_all_filters=all_filters*(-1)
+    SSN_filters=np.vstack([all_filters, off_all_filters])
+    
+    A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(ssn.ori_map.ravel()))
+    
+    
+    
+    return SSN_filters, A
