@@ -1,8 +1,8 @@
+import jax
 
-
-import jax.numpy as np
 
 #####  ORIGINAL UTIL ####
+
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
@@ -26,16 +26,19 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
     """
+    import jax.numpy as np
+   
 
     if PLOT:
         if inds is None:
             N = x_initial.shape[0] # x_initial.size
             inds = [int(N/4), int(3*N/4)]
         xplot = x_initial[inds][:,None]
-
+    Tmax=600
+    dt=1
     Nmax = int(np.round(Tmax/dt))
     Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
-    xvec = np.asarray(x_initial) #added np.asarray
+    xvec = x_initial 
     CONVG = False
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
@@ -43,9 +46,11 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         if PLOT:
             #xplot = np.asarray([xplot, xvvec[inds]])
             xplot = np.hstack((xplot,xvec[inds][:,None]))
-
+        
+        
         if n > Nmin:
-            if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
+           
+            if jax.numpy.abs( dx /jax.numpy.maximum(xmin, jax.numpy.abs(xvec)) ).max() < xtol:
                 if verbose:
                     print("      converged to fixed point at iter={},      as max(abs(dx./max(xvec,{}))) < {} ".format(n, xmin, xtol))
                 CONVG = True
@@ -329,3 +334,77 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
     
     
     return SSN_filters, A
+
+
+#CREATE INPUT STIMULI
+def create_gratings(training_oris, **stimuli_pars):
+    '''
+    Create input stimuli gratings.
+    Input:
+        training_data: list of orientations, where each item of the list is [ref_ori, target_ori]. Length of list is number of trials
+    Output:
+        training_gratings: array of 1D reference and target stimuli. Shape is (n_trials, 2, n_pixels) - 2
+    
+    '''
+    
+    #initialise empty arrays
+    labels=[]
+    training_gratings=[]
+    
+    for i in range(len(training_oris)):
+        
+        #find label
+        if training_oris[i,0] > training_oris[i,1]:
+            label=1
+        else:
+            label=0
+        labels.append(label)
+        
+        #create reference grating
+        ref = BW_Grating(ori_deg = training_oris[i,0], **stimuli_pars).BW_image().ravel()
+        
+        
+        #create target grating
+        target = BW_Grating(ori_deg = training_oris[i,1], **stimuli_pars).BW_image().ravel()
+        
+        training_gratings.append([ref, target])
+
+    return np.array(training_gratings), labels
+
+#CREATE RESPONSE PLOTS AT GIVEN ORIENTATION
+def response_plots(ori, SSN_filters, A, grating_pars, dt=1, x_tol= 1e-5, Tmax=600):
+    '''
+    Input given orientation and obtain response plots for all neuron types after reaching convergence
+    '''
+
+    #create stimulus at required orientation
+    grating=BW_Grating(ori_deg=ori, **grating_pars,)
+    test_stimuli=grating.BW_image()
+    
+    #multiply filters by stimuli
+    output_gabor=np.matmul(SSN_filters, test_stimuli.ravel())*A
+    
+    #rectify output
+    SSN_input=np.maximum(0, output_gabor)
+    
+    #Find fixed point using input
+    r_init = np.zeros(SSN_input.shape[0])
+    r_fps, CONVG = ssn.fixed_point_r(SSN_input, r_init=r_init, Tmax=Tmax, dt=dt, xtol=xtol)
+    
+    
+    fig, ax = plt.subplots(2,2, figsize=(9,9))
+    fig.subplots_adjust(hspace=0.2)
+
+    ax[0,0].imshow(r_fps[0:ssn.Ne//2].reshape((9,9)))
+    ax[0,0].set_title('E_ON')
+
+    ax[0,1].imshow(r_fps[ssn.Ne//2:2*(ssn.Ne//2)].reshape((9,9)))
+    ax[0,1].set_title('E_OFF')
+
+    ax[1,0].imshow(r_fps[2*(ssn.Ne//2):3*(ssn.Ne//2)].reshape((9,9)))
+    ax[1,0].set_title('I_ON')
+
+    ax[1,1].imshow(r_fps[3*(ssn.Ne//2):].reshape((9,9)))
+    ax[1,1].set_title('I_OFF')
+    
+    return r_fps
