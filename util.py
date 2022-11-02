@@ -1,9 +1,10 @@
 import jax
-
+from jax import random
+import jax.numpy as np
 
 #####  ORIGINAL UTIL ####
 
-def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True):
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, silent=False):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
     Euler update with sufficiently large dt (to gain in computational time).
@@ -26,23 +27,26 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
     """
+    
     import jax.numpy as np
-   
 
     if PLOT:
         if inds is None:
             N = x_initial.shape[0] # x_initial.size
             inds = [int(N/4), int(3*N/4)]
         xplot = x_initial[inds][:,None]
-    Tmax=600
-    dt=1
     Nmax = int(np.round(Tmax/dt))
     Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
     CONVG = False
+    
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
+        if np.isnan(dx).any() == True:
+            print('nan in dx at {}'.format(n))
+            print(dx)
         xvec = xvec + dx
+        
         if PLOT:
             #xplot = np.asarray([xplot, xvvec[inds]])
             xplot = np.hstack((xplot,xvec[inds][:,None]))
@@ -56,7 +60,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
                 CONVG = True
                 break
 
-    if not CONVG: # n == Nmax:
+    if not CONVG and not silent: # n == Nmax:
         print("\n Warning 1: reached Tmax={}, before convergence to fixed point.".format(Tmax))
         print("       max(abs(dx./max(abs(xvec), {}))) = {},   xtol={}.\n".format(xmin, np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max(), xtol))
         #mybeep(.2,350)
@@ -90,6 +94,7 @@ class GaborFilter:
         
         #convert to mm from degrees
         if conv_factor:
+            self.conv_factor = conv_factor
             self.x_i=x_i/conv_factor
             self.y_i=y_i/conv_factor
         else:
@@ -99,7 +104,10 @@ class GaborFilter:
         self.theta=theta*(np.pi/180) 
         self.phase=phase 
         self.sigma_g=sigma_g
+        self.edge_deg = edge_deg
+        self.degree_per_pixel = degree_per_pixel
         self.N_pixels=int(edge_deg*2/degree_per_pixel) +1 
+        
         
         #create image axis
         x_axis=np.linspace(-edge_deg, edge_deg, self.N_pixels, endpoint=True)  
@@ -131,6 +139,59 @@ class GaborFilter:
         return gaussian*spatial[::-1] #same convention as stimuli
     
     
+    def find_A(self, indices, return_all=False):
+        '''
+        Find constant to multiply Gabor filters.
+        Input:
+            gabor_pars: Filter parameters - centre already specified in function
+            stimuli_pars: Stimuli parameters (high constrast and spanning all visual field)
+            indices: List of orientatins in degrees to calculate filter and corresponding stimuli
+        Output:
+            A: value of constant so that contrast = 100
+        '''
+        all_A=[]
+        all_gabors=[]
+        all_test_stimuli=[]
+
+        for ori in indices:
+
+            #generate Gabor filter and stimuli at orientation
+            gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, degree_per_pixel=self.degree_per_pixel)
+            test_grating=BW_Grating(ori_deg=ori, edge_deg=self.edge_deg, k=self.k, degree_per_pixel=self.degree_per_pixel, outer_radius=self.edge_deg*2, inner_radius=self.edge_deg*2, grating_contrast=0.99)
+            test_stimuli=test_grating.BW_image()
+
+            #multiply filter and stimuli
+            output_gabor=np.matmul(gabor.filter.ravel(), test_stimuli.ravel())
+
+
+            all_gabors.append(gabor.filter)
+            all_test_stimuli.append(test_stimuli)
+
+
+            #calculate value of A
+            A_value=100/(output_gabor) 
+
+            #create list of A
+            all_A.append(A_value)
+
+
+        #find average value of A
+        all_A=np.array(all_A)
+        A=all_A.mean()
+
+        all_gabors=np.array(all_gabors)
+        all_test_stimuli=np.array(all_test_stimuli)
+
+        #print('Average A is {}'.format(A))
+
+        if return_all==True:
+            output =  A , all_gabors, all_test_stimuli
+        else:
+            output=A
+
+        return output
+
+    
     
 ##### CREATING GRATINGS ######    
 """
@@ -150,7 +211,7 @@ from PIL import Image
 from random import random
 from scipy.stats import norm
 from numpy.random import binomial
-
+from jax import random
 from numpy import pi
 
 
@@ -161,7 +222,7 @@ _GRAY = round((_WHITE + _BLACK) / 2)
 
 class JiaGrating:
 
-    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter=0, snr=1.0, spatial_frequency=None):
+    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr=1.0, spatial_frequency=None):
         self.ori_deg = ori_deg
         self.size = size
 
@@ -170,7 +231,7 @@ class JiaGrating:
         self.pixel_per_degree = pixel_per_degree
         self.grating_contrast = grating_contrast
         self.phase = phase
-        self.jitter = jitter
+        self.jitter =  jitter
         self.snr = snr
 
         self.smooth_sd = self.pixel_per_degree / 6
@@ -296,7 +357,7 @@ def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, return
     all_gabors=np.array(all_gabors)
     all_test_stimuli=np.array(all_test_stimuli)
 
-    print('Average A is {}'.format(A))
+    #print('Average A is {}'.format(A))
     
     if return_all==True:
         output =  A , all_gabors, all_test_stimuli
@@ -324,10 +385,14 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
     i_constant= 1
     i_filters=np.multiply(i_constant, e_filters)
     all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
-
+    
     #create filters with phase equal to pi
-    off_all_filters=all_filters*(-1)
-    SSN_filters=np.vstack([all_filters, off_all_filters])
+    e_off_filters = - e_filters
+    i_off_filters = - i_filters
+    
+    
+    #SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
+    SSN_filters = np.vstack([e_filters, i_filters])
     
     A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(ssn.ori_map.ravel()))
     
@@ -337,7 +402,7 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
 
 
 #CREATE INPUT STIMULI
-def create_gratings(training_oris, **stimuli_pars):
+def create_gratings(training_oris, jitter_val=0, **stimuli_pars):
     '''
     Create input stimuli gratings.
     Input:
@@ -350,6 +415,8 @@ def create_gratings(training_oris, **stimuli_pars):
     #initialise empty arrays
     labels=[]
     training_gratings=[]
+    key = random.PRNGKey(86)
+    key, _ = random.split(key)
     
     for i in range(len(training_oris)):
         
@@ -360,12 +427,16 @@ def create_gratings(training_oris, **stimuli_pars):
             label=0
         labels.append(label)
         
-        #create reference grating
-        ref = BW_Grating(ori_deg = training_oris[i,0], **stimuli_pars).BW_image().ravel()
+        #generate jitter for reference and target
+        jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
+        key, _ = random.split(key)
+                
         
+        #create reference grating
+        ref = BW_Grating(ori_deg = training_oris[i,0], jitter=jitter, **stimuli_pars).BW_image().ravel()
         
         #create target grating
-        target = BW_Grating(ori_deg = training_oris[i,1], **stimuli_pars).BW_image().ravel()
+        target = BW_Grating(ori_deg = training_oris[i,1], jitter=jitter, **stimuli_pars).BW_image().ravel()
         
         training_gratings.append([ref, target])
 

@@ -47,6 +47,12 @@ class _SSN_Base(object):
         return  self.k * np.maximum(0,u)**self.n
 
     def drdt(self, r, inp_vec):
+        if np.isnan(r).any() ==True:
+            print('nan value in r')
+        if np.isnan(self.W).any() ==True:
+            print('nan value in W')
+        if np.isinf(self.W).any() ==True:
+            print('inf value in W')
         return ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
 
     def drdt_multi(self, r, inp_vec):
@@ -100,14 +106,14 @@ class _SSN_Base(object):
             DCjacob = self.DCjacobian(r)
         return -1j*omega * np.diag(self.tau_x_vec) - DCjacob
 
-    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True):
+    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose)
-        if not CONVG:
+        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+        if not CONVG and not silent:
             print('Did not reach fixed point.')
         #else:
         #    return r_fp

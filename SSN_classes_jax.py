@@ -1,22 +1,25 @@
 import jax.numpy as np
 from util import Euler2fixedpt
 from jax import random
+import matplotlib.pyplot as plt
 
 from SSN_classes_jax_on_only import _SSN_Base, _SSN_AMPAGABA_Base
+from util import  find_A, GaborFilter
+
         
 
 class SSN2DTopoV1_ONOFF(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, ssn_pars, grid_pars,  conn_pars, J_2x2, s_2x2, **kwargs):
+    def __init__(self, ssn_pars, grid_pars,  conn_pars, filter_pars, J_2x2, s_2x2, **kwargs):
         self.Nc = grid_pars.gridsize_Nx**2 #number of columns
         Ni = Ne = 2 * self.Nc 
-        
         n=ssn_pars.n
         k=ssn_pars.k
         tauE= ssn_pars.tauE
         tauI=ssn_pars.tauI
-        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
+        tau_vec = np.hstack([tauE * np.ones(self.Nc), tauI * np.ones(self.Nc)])
+        tau_vec = np.kron(np.array([1,1]), tau_vec )
         tau_s=ssn_pars.tau_s
   
         super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
@@ -25,6 +28,9 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
         self._make_maps(grid_pars)
+        
+        self.gabor_filters, self.A = self.create_gabor_filters(**filter_pars)
+        
         if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
             self.make_W(J_2x2, s_2x2, **conn_pars)
 
@@ -244,7 +250,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
                     if Jnoise_GAUSSIAN:
                         ##JAX CHANGES##
                         #jitter = np.random.standard_normal(W.shape)
-                        key = random.PRNGKey(87)
+                        key = random.PRNGKey(87) #87
                         key, subkey=random.split(key)
                         jitter = random.normal(key, W.shape)
                     else:
@@ -277,9 +283,94 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         self.W=np.kron(B, self.W)
         
         return self.W
+    
+    
+    
+    def response_plots(self, vector):
+        '''
+        Separate and plot into vector as squares according to E_ON, I_ON, E_OFF, I_OFF
+        Input:
+            vector: size N
+        Output:
+            plots in squares
+        '''
+
+        fig, ax = plt.subplots(2,2, figsize=(9,9))
+        fig.subplots_adjust(hspace=0.2)
+
+        ax[0,0].imshow(vector[0:self.Ne//2].reshape((9,9)))
+        ax[0,0].set_title('E_ON')
+
+        ax[0,1].imshow(vector[self.Ne//2:2*(self.Ne//2)].reshape((9,9)))
+        ax[0,1].set_title('I_ON')
+
+        ax[1,0].imshow(vector[2*(self.Ne//2):3*(self.Ne//2)].reshape((9,9)))
+        ax[1,0].set_title('E_OFF')
+
+        ax[1,1].imshow(vector[3*(self.Ne//2):].reshape((9,9)))
+        ax[1,1].set_title('I_OFF')
 
     
     
+    def create_gabor_filters(self, edge_deg, k, sigma_g, conv_factor, degree_per_pixel):
+    
+        e_filters=[] #array of filters
+
+        #Iterate over SSN map
+        for i in range(self.ori_map.shape[0]):
+            for j in range(self.ori_map.shape[1]):
+                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=edge_deg, k=k, sigma_g=sigma_g, theta=self.ori_map[i,j], conv_factor=conv_factor, degree_per_pixel=degree_per_pixel)
+
+                e_filters.append(gabor.filter.ravel())
+        e_filters=np.array(e_filters)
+
+        #create inhibitory filters
+        i_constant= 1
+        i_filters=np.multiply(i_constant, e_filters)
+        all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
+
+        #create filters with phase equal to pi
+        e_off_filters = - e_filters
+        i_off_filters = - i_filters
+
+
+        SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
+
+        A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+        
+        return SSN_filters, A
+    
+    def select_type(self, vec, select='E_ON'):
+    
+        assert vec.ndim == 1
+        maps = self.vec2map(vec)
+
+        if select=='E_ON':
+            output = maps[0]
+
+        if select =='I_ON':
+            output=maps [1]
+
+        if select == 'E_OFF':
+            output=maps [2]
+
+        if select == 'I_OFF':
+            output = maps [4]
+    
+        return output
+    
+    def apply_bounding_box(self, vec, size = 3.2):
+
+        map_vec = self.select_type(vec, select='E_ON')
+
+        size = int(np.round(size / (self.grid_pars.dx))) +1
+
+        start = int((self.grid_pars.gridsize_Nx - size) / 2)        
+
+        map_vec = map_vec[start:start+size, start:start+size]
+
+        return map_vec
+
     '''
     def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
         """
