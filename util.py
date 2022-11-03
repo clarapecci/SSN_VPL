@@ -1,6 +1,14 @@
 import jax
 from jax import random
+import math
+from PIL import Image
+from random import random
+from scipy.stats import norm
 import jax.numpy as np
+from jax import random
+import numpy 
+from numpy.random import binomial
+
 
 #####  ORIGINAL UTIL ####
 
@@ -27,8 +35,6 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
     """
-    
-    import jax.numpy as np
 
     if PLOT:
         if inds is None:
@@ -42,9 +48,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
-        if np.isnan(dx).any() == True:
-            print('nan in dx at {}'.format(n))
-            print(dx)
+        print(np.sum(dx))
         xvec = xvec + dx
         
         if PLOT:
@@ -54,7 +58,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         
         if n > Nmin:
            
-            if jax.numpy.abs( dx /jax.numpy.maximum(xmin, jax.numpy.abs(xvec)) ).max() < xtol:
+            if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
                 if verbose:
                     print("      converged to fixed point at iter={},      as max(abs(dx./max(xvec,{}))) < {} ".format(n, xmin, xtol))
                 CONVG = True
@@ -203,18 +207,6 @@ These files are hosted at https://gitlab.com/samueljamesbell/vpl-modelling. All 
 This file is a Python port of stimuli developed by Ke Jia.
 """
 
-import math
-
-import numpy as np
-from PIL import Image
-
-from random import random
-from scipy.stats import norm
-from numpy.random import binomial
-from jax import random
-from numpy import pi
-
-
 _BLACK = 0
 _WHITE = 255
 _GRAY = round((_WHITE + _BLACK) / 2)
@@ -240,24 +232,24 @@ class JiaGrating:
         self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * math.pi
 
     def image(self):
-        x, y = np.mgrid[-self.grating_size:self.grating_size+1., -self.grating_size:self.grating_size+1.]
+        x, y = numpy.mgrid[-self.grating_size:self.grating_size+1., -self.grating_size:self.grating_size+1.]
 
         d = self.grating_size * 2 + 1
-        annulus = np.ones((d, d))
+        annulus = numpy.ones((d, d))
 
-        edge_control = np.divide(np.sqrt(np.power(x, 2) + np.power(y, 2)), self.pixel_per_degree)
+        edge_control = numpy.divide(numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)), self.pixel_per_degree)
 
-        overrado = np.nonzero(edge_control > self.inner_radius)
+        overrado = numpy.nonzero(edge_control > self.inner_radius)
 
         for idx_x, idx_y in zip(*overrado):
-            annulus[idx_x, idx_y] = annulus[idx_x, idx_y] * np.exp(-1 * ((((edge_control[idx_x, idx_y] - self.inner_radius) * self.pixel_per_degree) ** 2) / (2 * (self.smooth_sd ** 2))))    
+            annulus[idx_x, idx_y] = annulus[idx_x, idx_y] * numpy.exp(-1 * ((((edge_control[idx_x, idx_y] - self.inner_radius) * self.pixel_per_degree) ** 2) / (2 * (self.smooth_sd ** 2))))    
 
-        gabor_sti = _GRAY * (1 + self.grating_contrast * np.cos(2 * math.pi * self.spatial_freq * (y * np.sin(self.angle) + x * np.cos(self.angle)) + self.phase))
+        gabor_sti = _GRAY * (1 + self.grating_contrast * numpy.cos(2 * math.pi * self.spatial_freq * (y * numpy.sin(self.angle) + x * numpy.cos(self.angle)) + self.phase))
 
-        gabor_sti[np.sqrt(np.power(x, 2) + np.power(y, 2)) > self.grating_size] = _GRAY
+        gabor_sti[numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)) > self.grating_size] = _GRAY
 
         # Noise
-        noise = np.floor(np.sin(norm.rvs(size=(d, d))) * _GRAY) + _GRAY
+        noise = numpy.floor(numpy.sin(norm.rvs(size=(d, d))) * _GRAY) + _GRAY
 
         noise_mask = binomial(1, 1-self.snr, size=(d, d)).astype(int)
         masked_noise = noise * noise_mask
@@ -268,16 +260,16 @@ class JiaGrating:
         noisy_gabor_sti = masked_gabor_sti + masked_noise
         # End noise
 
-        gabor_sti_final = np.repeat(noisy_gabor_sti[:, :, np.newaxis], 3, axis=-1)
+        gabor_sti_final = numpy.repeat(noisy_gabor_sti[:, :, numpy.newaxis], 3, axis=-1)
         alpha_channel = annulus * _WHITE
-        gabor_sti_final_with_alpha = np.concatenate((gabor_sti_final, alpha_channel[:, :, np.newaxis]), axis=-1)
-        gabor_sti_final_with_alpha_image = Image.fromarray(gabor_sti_final_with_alpha.astype(np.uint8))
+        gabor_sti_final_with_alpha = numpy.concatenate((gabor_sti_final, alpha_channel[:, :, numpy.newaxis]), axis=-1)
+        gabor_sti_final_with_alpha_image = Image.fromarray(gabor_sti_final_with_alpha.astype(numpy.uint8))
 
         center_x = int(self.size / 2)
         center_y = int(self.size / 2)
         bounding_box = (center_x - self.grating_size, center_y - self.grating_size)
 
-        background = np.full((self.size, self.size, 3), _GRAY, dtype=np.uint8)
+        background = numpy.full((self.size, self.size, 3), _GRAY, dtype=numpy.uint8)
         final_image = Image.fromarray(background)
 
         final_image.paste(gabor_sti_final_with_alpha_image, box=bounding_box, mask=gabor_sti_final_with_alpha_image)
@@ -402,7 +394,25 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
 
 
 #CREATE INPUT STIMULI
-def create_gratings(training_oris, jitter_val=0, **stimuli_pars):
+def make_gratings(ref_ori, target_ori, key, jitter_val=5, **stimuli_pars, ):
+    '''
+    Create reference and target stimulus given orientations using same jitter
+    '''
+    #generate jitter for reference and target
+    jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
+    
+
+    #create reference grating
+    ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+
+    #create target grating
+    target = BW_Grating(ori_deg = target_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+    
+    return [ref, target]
+    
+
+    
+def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
     '''
     Create input stimuli gratings.
     Input:
@@ -413,69 +423,26 @@ def create_gratings(training_oris, jitter_val=0, **stimuli_pars):
     '''
     
     #initialise empty arrays
-    labels=[]
+    labels_list=[]
     training_gratings=[]
     key = random.PRNGKey(86)
     key, _ = random.split(key)
+   
     
-    for i in range(len(training_oris)):
+    for i in range(number):
         
-        #find label
-        if training_oris[i,0] > training_oris[i,1]:
-            label=1
+        if random.uniform(key) < 0.5:
+            target_ori = ref_ori - offset
+            label = 1
         else:
-            label=0
-        labels.append(label)
+            target_ori = ref_ori + offset
+            label = 0
+        key, subkey = random.split(key)
         
-        #generate jitter for reference and target
-        jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
-        key, _ = random.split(key)
-                
-        
-        #create reference grating
-        ref = BW_Grating(ori_deg = training_oris[i,0], jitter=jitter, **stimuli_pars).BW_image().ravel()
-        
-        #create target grating
-        target = BW_Grating(ori_deg = training_oris[i,1], jitter=jitter, **stimuli_pars).BW_image().ravel()
-        
-        training_gratings.append([ref, target])
+        gratings = make_gratings(ref_ori, target_ori, subkey, jitter_val,**stimuli_pars ) 
 
-    return np.array(training_gratings), labels
+        labels_list.append(label)
+        training_gratings.append(gratings)
 
-#CREATE RESPONSE PLOTS AT GIVEN ORIENTATION
-def response_plots(ori, SSN_filters, A, grating_pars, dt=1, x_tol= 1e-5, Tmax=600):
-    '''
-    Input given orientation and obtain response plots for all neuron types after reaching convergence
-    '''
+    return np.array(training_gratings), labels_list
 
-    #create stimulus at required orientation
-    grating=BW_Grating(ori_deg=ori, **grating_pars,)
-    test_stimuli=grating.BW_image()
-    
-    #multiply filters by stimuli
-    output_gabor=np.matmul(SSN_filters, test_stimuli.ravel())*A
-    
-    #rectify output
-    SSN_input=np.maximum(0, output_gabor)
-    
-    #Find fixed point using input
-    r_init = np.zeros(SSN_input.shape[0])
-    r_fps, CONVG = ssn.fixed_point_r(SSN_input, r_init=r_init, Tmax=Tmax, dt=dt, xtol=xtol)
-    
-    
-    fig, ax = plt.subplots(2,2, figsize=(9,9))
-    fig.subplots_adjust(hspace=0.2)
-
-    ax[0,0].imshow(r_fps[0:ssn.Ne//2].reshape((9,9)))
-    ax[0,0].set_title('E_ON')
-
-    ax[0,1].imshow(r_fps[ssn.Ne//2:2*(ssn.Ne//2)].reshape((9,9)))
-    ax[0,1].set_title('E_OFF')
-
-    ax[1,0].imshow(r_fps[2*(ssn.Ne//2):3*(ssn.Ne//2)].reshape((9,9)))
-    ax[1,0].set_title('I_ON')
-
-    ax[1,1].imshow(r_fps[3*(ssn.Ne//2):].reshape((9,9)))
-    ax[1,1].set_title('I_OFF')
-    
-    return r_fps
