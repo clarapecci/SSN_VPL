@@ -3,8 +3,266 @@ from util import Euler2fixedpt
 from jax import random
 import matplotlib.pyplot as plt
 
-from SSN_classes_jax_on_only import _SSN_Base, _SSN_AMPAGABA_Base
 from util import  find_A, GaborFilter
+
+class _SSN_Base(object):
+    def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None):
+        self.n = n
+        self.k = k
+        self.Ne = Ne
+        self.Ni = Ni
+        self.N = self.Ne + self.Ni
+
+        ## JAX CHANGES ##
+        self.EI=[b"E"]*(self.Ne) + [b"I"]*(self.N - self.Ne)
+        self.condition= np.array([bool(self.EI[x]==b"E") for x in range(len(self.EI))])
+        
+        if tau_vec is not None:
+            self.tau_vec = tau_vec # rate time-consants of neurons. shape: (N,)
+        # elif  not hasattr(self, "tau_vec"):
+        #     self.tau_vec = np.random.rand(N) * 20 # in ms
+        if W is not None:
+            self.W = W # connectivity matrix. shape: (N, N)
+        # elif  not hasattr(self, "W"):
+        #     W = np.random.rand(N,N) / np.sqrt(self.N)
+        #     sign_vec = np.hstack(np.ones(self.Ne), -np.ones(self.Ni))
+        #     self.W = W * sign_vec[None, :] # to respect Dale
+
+    @property
+    def neuron_params(self):
+        return dict(n=self.n, k=self.k)
+
+    @property
+    def dim(self):
+        return self.N
+
+    @property
+    def tau_x_vec(self):
+        """ time constants for the generalized state-vector, x """
+        return self.tau_vec
+
+
+    def powlaw(self, u):
+        return  self.k * np.maximum(0,u)**self.n
+
+    def drdt(self, r, inp_vec):
+
+        out = ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
+        if np.isnan(out).any():
+            raise ValueError('Value is nan')
+        return out
+
+    def drdt_multi(self, r, inp_vec):
+        """
+        Compared to self.drdt allows for inp_vec and r to be
+        matrices with arbitrary shape[1]
+        """
+        return (( -r + self.powlaw(self.W @ r + inp_vec) ).T / self.tau_vec ).T
+
+    def dxdt(self, x, inp_vec):
+        """
+        allowing for descendent SSN types whose state-vector, x, is different
+        than the rate-vector, r.
+        """
+        return self.drdt(x, inp_vec)
+
+    def gains_from_v(self, v):
+        return self.n * self.k * np.maximum(0,v)**(self.n-1)
+
+    def gains_from_r(self, r):
+        return self.n * self.k**(1/self.n) * r**(1-1/self.n)
+
+    def DCjacobian(self, r):
+        """
+        DC Jacobian (i.e. zero-frequency linear response) for
+        linearization around rate vector r
+        """
+        Phi = self.gains_from_r(r)
+        return -np.eye(self.N) + Phi[:, None] * self.W
+
+    def jacobian(self, DCjacob=None, r=None):
+        """
+        dynamic Jacobian for linearization around rate vector r
+        """
+        if DCjacob is None:
+            assert r is not None
+            DCjacob = self.DCjacobian(r)
+        return DCjacob / self.tau_x_vec[:, None] # equivalent to np.diag(tau_x_vec) * DCjacob
+
+    def jacobian_eigvals(self, DCjacob=None, r=None):
+        Jacob = self.jacobian(DCjacob=DCjacob, r=r)
+        return np.linalg.eigvals(Jacob)
+
+    def inv_G(self, omega, DCjacob, r=None):
+        """
+        inverse Green's function at angular frequency omega,
+        for linearization around rate vector r
+        """
+        if DCjacob is None:
+            assert r is not None
+            DCjacob = self.DCjacobian(r)
+        return -1j*omega * np.diag(self.tau_x_vec) - DCjacob
+
+    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False):
+        if r_init is None:
+            r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
+        drdt = lambda r : self.drdt(r, inp_vec)
+        if inp_vec.ndim > 1:
+            drdt = lambda r : self.drdt_multi(r, inp_vec)
+        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+        if not CONVG and not silent:
+            print('Did not reach fixed point.')
+        #else:
+        #    return r_fp
+        return r_fp, CONVG
+
+    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
+        if x_init is None:
+            x_init = np.zeros((self.dim,))
+        dxdt = lambda x : self.dxdt(x, inp_vec)
+        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT)
+        if not CONVG:
+            print('Did not reach fixed point.')
+        #else:
+        #    return x_fp
+        return x_fp, CONVG
+
+    def make_noise_cov(self, noise_pars):
+        # the script assumes independent noise to E and I, and spatially uniform magnitude of noise
+        noise_sigsq = np.hstack( (noise_pars.stdevE**2 * np.ones(self.Ne),
+                                  noise_pars.stdevI**2 * np.ones(self.Ni)) )
+        spatl_filt = np.array(1)
+
+        return noise_sigsq, spatl_filt
+    
+    
+class _SSN_AMPAGABA_Base(_SSN_Base):
+    """
+    SSN with different synaptic receptor types.
+    Dynamics of the model assumes the instantaneous neural I/O approximation
+    suggested by Fourcaud and Brunel (2002).
+    Convention for indexing of state-vector v (which is 2N or 3N dim)
+    is according to kron(receptor_type_index, neural_index).
+    """
+    def __init__(self,*, tau_s=[4,5,100], NMDAratio=0.4, **kwargs):
+        """
+        tau_s = [tau_AMPA, tau_GABA, tau_NMDA] or [tau_AMPA, tau_GABA]
+          decay time-consants for synaptic currents of different receptor types.
+        NMDAratio: scalar
+          ratio of E synaptic weights that are NMDA-type
+          (model assumes this fraction is constant in all weights)
+        Good values:
+         tau_AMPA = 4, tau_GABA= 5  #in ms
+         NMDAratio = 0.3-0.4
+         tau_s can have length == 3, and yet if self.NMDAratio is 0,
+         then num_rcpt will be 2, and dynamical system will be 2 * self.N dimensional.
+         I.e. NMDA components will not be simulated even though a NMDA time-constant is defined.
+        """
+        tau_s = np.squeeze(np.asarray(tau_s))
+        assert tau_s.size <= 3 and tau_s.ndim == 1
+        self._tau_s = tau_s
+        if tau_s.size == 3 and NMDAratio > 0:
+            self._NMDAratio = NMDAratio
+        else:
+            self._NMDAratio = 0
+
+        super(_SSN_AMPAGABA_Base, self).__init__(**kwargs)
+
+    @property
+    def dim(self):
+        return self.num_rcpt * self.N
+
+    @property
+    def num_rcpt(self):
+        if not hasattr(self, '_num_rcpt'):
+            self._num_rcpt = self._tau_s.size
+            if self._num_rcpt == 3 and self.NMDAratio == 0:
+                self._num_rcpt = 2
+        return self._num_rcpt
+
+    @property
+    def NMDAratio(self):
+        return self._NMDAratio
+
+    @NMDAratio.setter
+    def NMDAratio(self, value):
+        # if value > 0, make sure an NMDA time-constant is defined
+        if value > 0 and self._tau_s.size < 3:
+            raise ValueError("No NMDA time-constant defined! Change tau_s first to add NMDA constant.")
+        # if NMDAratio is going from 0 to nonzero or vice versa, then delete _num_rcpt and _Wrcpt (so they are made de novo when needed)
+        if (value == 0 and self._NMDAratio > 0) or (value > 0 and self._NMDAratio == 0):
+            del self._Wrcpt
+            del self._num_rcpt
+        self._NMDAratio = value
+
+    @property
+    def Wrcpt(self):
+        if not hasattr(self, '_Wrcpt'): # cache it in _Wrcpt once it's been created
+            W_AMPA = (1-self.NMDAratio)* np.hstack((self.W[:,:self.Ne], np.zeros((self.N,self.Ni)) ))
+            W_GABA = np.hstack((np.zeros((self.N,self.Ne)), self.W[:,self.Ne:]))
+            Wrcpt = [W_AMPA, W_GABA]
+            if self.NMDAratio > 0:
+                W_NMDA = self.NMDAratio/(1-self.NMDAratio) * W_AMPA
+                Wrcpt.append(W_NMDA)
+            self._Wrcpt = np.vstack(Wrcpt) # shape = (self.num_rcpt*self.N, self.N)
+        return self._Wrcpt
+
+    @property
+    def tau_s(self):
+        return self._tau_s  #[:self.num_rcpt]
+
+    @tau_s.setter
+    def tau_s(self, values):
+        self._tau_s = values
+        del self._tau_s_vec  
+        
+    @property
+    def tau_s_vec(self):
+        if not hasattr(self, '_tau_s_vec'): # cache it once it's been created
+            self._tau_s_vec = np.kron(self._tau_s[:self.num_rcpt], np.ones(self.N))
+        return self._tau_s_vec
+
+    @property
+    def tau_x_vec(self):
+        """ time constants for the generalized state-vector, x """ 
+        return self.tau_s_vec
+
+    @property
+    def tau_AMPA(self):
+        return self._tau_s[0]
+
+    @property
+    def tau_GABA(self):
+        return self._tau_s[1]
+
+    @property
+    def tau_NMDA(self):
+        if len(self._tau_s) == 3:
+            return self._tau_s[2]
+        else:
+            return None
+
+    def dvdt(self, v, inp_vec):
+        """
+        Returns the AMPA/GABA/NMDA based dynamics, with the instantaneous
+        neural I/O approximation suggested by Fourcaud and Brunel (2002).
+        v and inp_vec are now of shape (self.num_rcpt * ssn.N,).
+        """
+        #total input to power law I/O is the sum of currents of different types:
+        r = self.powlaw( v.reshape((self.num_rcpt, self.N)).sum(axis=0) )  
+        return ( -v + self.Wrcpt @ r + inp_vec ) / self.tau_s_vec
+
+    def dxdt(self, x, inp_vec):
+        return self.dvdt(x, inp_vec)
+
+    def DCjacobian(self, r):
+        """
+        DC Jacobian (i.e. zero-frequency linear response) for
+        linearization around state-vector v, leading to rate-vector r
+        """
+        Phi = self.gains_from_r(r)
+        return ( -np.eye(self.num_rcpt * self.N) +
+                np.tile( self.Wrcpt * Phi[None,:] , (1, self.num_rcpt)) ) # broadcasting so that gain (Phi) varies by 2nd (presynaptic) neural index, and does not depend on receptor type or post-synaptic (1st) neural index
 
         
 
