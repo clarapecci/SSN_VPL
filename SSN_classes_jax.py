@@ -1,5 +1,5 @@
 import jax.numpy as np
-from util import Euler2fixedpt
+from util import Euler2fixedpt, Euler2fixedpt_fullTmax
 from jax import random
 import matplotlib.pyplot as plt
 
@@ -46,10 +46,7 @@ class _SSN_Base(object):
         return  self.k * np.maximum(0,u)**self.n
 
     def drdt(self, r, inp_vec):
-
         out = ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
-        if np.isnan(out).any():
-            raise ValueError('Value is nan')
         return out
 
     def drdt_multi(self, r, inp_vec):
@@ -109,9 +106,10 @@ class _SSN_Base(object):
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
-        if not CONVG and not silent:
-            print('Did not reach fixed point.')
+        r_fp, CONVG = Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+        
+        #if not CONVG and not silent:
+        #    print('Did not reach fixed point.')
         #else:
         #    return r_fp
         return r_fp, CONVG
