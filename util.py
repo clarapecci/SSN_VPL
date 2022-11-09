@@ -48,7 +48,6 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
-        print(np.sum(dx))
         xvec = xvec + dx
         
         if PLOT:
@@ -57,7 +56,6 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         
         
         if n > Nmin:
-           
             if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
                 if verbose:
                     print("      converged to fixed point at iter={},      as max(abs(dx./max(xvec,{}))) < {} ".format(n, xmin, xtol))
@@ -79,7 +77,46 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
 
 ### END OF ORIGINAL UTIL ###
 
+def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, silent=False):
+    """
+    Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
+    Euler update with sufficiently large dt (to gain in computational time).
+    Checks for convergence to stop the updates early.
 
+    IN:
+    dxdt = a function handle giving the right hand side function of dynamical system
+    x_initial = initial condition for state variables (a column vector)
+    Tmax = maximum time to which it would run the Euler (same units as dt, e.g. ms)
+    dt = time step of Euler
+    xtol = tolerance in relative change in x for determining convergence
+    xmin = for x(i)<xmin, it checks convergenece based on absolute change, which must be smaller than xtol*xmin
+        Note that one can effectively make the convergence-check purely based on absolute,
+        as opposed to relative, change in x, by setting xmin to some very large
+        value and inputting a value for 'xtol' equal to xtol_desired/xmin.
+    PLOT: if True, plot the convergence of some component
+    inds: indices of x (state-vector) to plot
+
+    OUT:
+    xvec = found fixed point solution
+    CONVG = True if determined converged, False if not
+    """
+
+    if PLOT:
+        if inds is None:
+            N = x_initial.shape[0] # x_initial.size
+            inds = [int(N/4), int(3*N/4)]
+        xplot = x_initial[inds][:,None]
+    Nmax = int(np.round(Tmax/dt))
+    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
+    xvec = x_initial 
+    CONVG = False
+    
+    for n in range(Nmax):
+        dx = dxdt(xvec) * dt
+        xvec = xvec + dx
+        
+    CONVG = np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol
+    return xvec, CONVG
 
 #### CREATE GABOR FILTERS ####
 class GaborFilter:
@@ -295,13 +332,72 @@ class BW_Grating(JiaGrating):
         super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, spatial_frequency)
         
     def BW_image(self):
-        original=np.asarray(self.image())
-        image=np.sum(original, axis=2) 
+        original=numpy.array(self.image(), dtype=numpy.float16)
+        image=numpy.sum(original, axis=2) 
         
         if self.crop_f:
             image=image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]            
         return image
     
+
+
+#CREATE INPUT STIMULI
+def make_gratings(ref_ori, target_ori, key, jitter_val=5, **stimuli_pars, ):
+    '''
+    Create reference and target stimulus given orientations using same jitter
+    '''
+    #generate jitter for reference and target
+    jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
+    
+
+    #create reference grating
+    ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+
+    #create target grating
+    target = BW_Grating(ori_deg = target_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+    
+    return ref, target
+    
+
+    
+def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
+    '''
+    Create input stimuli gratings.
+    Input:
+        training_data: list of orientations, where each item of the list is [ref_ori, target_ori]. Length of list is number of trials
+    Output:
+        training_gratings: array of 1D reference and target stimuli. Shape is (n_trials, 2, n_pixels) - 2
+    
+    '''
+    
+    #initialise empty arrays
+    labels_list=[]
+    training_gratings=[]
+    key = random.PRNGKey(86)
+    key, _ = random.split(key)
+   
+    
+    for i in range(number):
+        
+        if random.uniform(key) < 0.5:
+            target_ori = ref_ori - offset
+            label = 1
+        else:
+            target_ori = ref_ori + offset
+            label = 0
+        key, subkey = random.split(key)
+        
+        ref, target = make_gratings(ref_ori, target_ori, subkey, jitter_val,**stimuli_pars ) 
+
+        
+        data_dict = {'ref':ref, 'target': target, 'label':label}
+        training_gratings.append(data_dict)
+
+    return training_gratings
+
+
+
+
 
     
     
@@ -348,8 +444,6 @@ def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, return
 
     all_gabors=np.array(all_gabors)
     all_test_stimuli=np.array(all_test_stimuli)
-
-    #print('Average A is {}'.format(A))
     
     if return_all==True:
         output =  A , all_gabors, all_test_stimuli
@@ -391,58 +485,3 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
     
     
     return SSN_filters, A
-
-
-#CREATE INPUT STIMULI
-def make_gratings(ref_ori, target_ori, key, jitter_val=5, **stimuli_pars, ):
-    '''
-    Create reference and target stimulus given orientations using same jitter
-    '''
-    #generate jitter for reference and target
-    jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
-    
-
-    #create reference grating
-    ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
-
-    #create target grating
-    target = BW_Grating(ori_deg = target_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
-    
-    return [ref, target]
-    
-
-    
-def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
-    '''
-    Create input stimuli gratings.
-    Input:
-        training_data: list of orientations, where each item of the list is [ref_ori, target_ori]. Length of list is number of trials
-    Output:
-        training_gratings: array of 1D reference and target stimuli. Shape is (n_trials, 2, n_pixels) - 2
-    
-    '''
-    
-    #initialise empty arrays
-    labels_list=[]
-    training_gratings=[]
-    key = random.PRNGKey(86)
-    key, _ = random.split(key)
-   
-    
-    for i in range(number):
-        
-        if random.uniform(key) < 0.5:
-            target_ori = ref_ori - offset
-            label = 1
-        else:
-            target_ori = ref_ori + offset
-            label = 0
-        key, subkey = random.split(key)
-        
-        gratings = make_gratings(ref_ori, target_ori, subkey, jitter_val,**stimuli_pars ) 
-
-        labels_list.append(label)
-        training_gratings.append(gratings)
-
-    return np.array(training_gratings), labels_list
-
