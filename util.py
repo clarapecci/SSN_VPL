@@ -327,14 +327,18 @@ class BW_Grating(JiaGrating):
         size=int(edge_deg*2 *pixel_per_degree) + 1
         spatial_frequency = k*degree_per_pixel
         
-        
-         
+                
         super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, spatial_frequency)
         
     def BW_image(self):
+        
+        #generate image using Jia Grating function
         original=numpy.array(self.image(), dtype=numpy.float16)
+        
+        #sum image over channels
         image=numpy.sum(original, axis=2) 
         
+        #crop image
         if self.crop_f:
             image=image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]            
         return image
@@ -342,14 +346,13 @@ class BW_Grating(JiaGrating):
 
 
 #CREATE INPUT STIMULI
-def make_gratings(ref_ori, target_ori, key, jitter_val=5, **stimuli_pars, ):
+def make_gratings(ref_ori, target_ori, jitter_val=5, **stimuli_pars, ):
     '''
-    Create reference and target stimulus given orientations using same jitter
+    Create reference and target stimulus given orientations using same jitter (randomly generated per trial) for reference and target.
     '''
     #generate jitter for reference and target
-    jitter =random.uniform(key, minval=- jitter_val , maxval= jitter_val)
+    jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
     
-
     #create reference grating
     ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
 
@@ -373,23 +376,19 @@ def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
     #initialise empty arrays
     labels_list=[]
     training_gratings=[]
-    key = random.PRNGKey(86)
-    key, _ = random.split(key)
    
     
     for i in range(number):
         
-        if random.uniform(key) < 0.5:
+        if numpy.random.uniform(0,1,1) < 0.5:
             target_ori = ref_ori - offset
             label = 1
         else:
             target_ori = ref_ori + offset
             label = 0
-        key, subkey = random.split(key)
         
-        ref, target = make_gratings(ref_ori, target_ori, subkey, jitter_val,**stimuli_pars ) 
+        ref, target = make_gratings(ref_ori, target_ori, jitter_val,**stimuli_pars ) 
 
-        
         data_dict = {'ref':ref, 'target': target, 'label':label}
         training_gratings.append(data_dict)
 
