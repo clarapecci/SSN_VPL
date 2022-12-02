@@ -251,7 +251,7 @@ _GRAY = round((_WHITE + _BLACK) / 2)
 
 class JiaGrating:
 
-    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr=1.0, spatial_frequency=None):
+    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr=1.0, std = 0, spatial_frequency=None, ):
         self.ori_deg = ori_deg
         self.size = size
 
@@ -262,6 +262,7 @@ class JiaGrating:
         self.phase = phase
         self.jitter =  jitter
         self.snr = snr
+        self.std = std
 
         self.smooth_sd = self.pixel_per_degree / 6
         self.spatial_freq = spatial_frequency or (1 / self.pixel_per_degree)
@@ -284,17 +285,21 @@ class JiaGrating:
         gabor_sti = _GRAY * (1 + self.grating_contrast * numpy.cos(2 * math.pi * self.spatial_freq * (y * numpy.sin(self.angle) + x * numpy.cos(self.angle)) + self.phase))
 
         gabor_sti[numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)) > self.grating_size] = _GRAY
+        
+        noise = numpy.random.normal(loc=0, scale=self.std, size = (d,d))
+        noisy_gabor_sti = gabor_sti + noise
 
-        # Noise
-        noise = numpy.floor(numpy.sin(norm.rvs(size=(d, d))) * _GRAY) + _GRAY
+        # Original Noise
+        #noise = numpy.floor(numpy.sin(norm.rvs(size=(d, d))) * _GRAY) + _GRAY
+        
+        #noise_mask = binomial(1, 1-self.snr, size=(d, d)).astype(int)
+        
+        #masked_noise = noise * noise_mask
 
-        noise_mask = binomial(1, 1-self.snr, size=(d, d)).astype(int)
-        masked_noise = noise * noise_mask
+        #signal_mask = 1 - noise_mask
+        #masked_gabor_sti = signal_mask * gabor_sti
 
-        signal_mask = 1 - noise_mask
-        masked_gabor_sti = signal_mask * gabor_sti
-
-        noisy_gabor_sti = masked_gabor_sti + masked_noise
+        #noisy_gabor_sti = masked_gabor_sti + masked_noise
         # End noise
 
         gabor_sti_final = numpy.repeat(noisy_gabor_sti[:, :, numpy.newaxis], 3, axis=-1)
@@ -310,6 +315,7 @@ class JiaGrating:
         final_image = Image.fromarray(background)
 
         final_image.paste(gabor_sti_final_with_alpha_image, box=bounding_box, mask=gabor_sti_final_with_alpha_image)
+        #print(numpy.mean(noisy_gabor_sti) / numpy.std(noisy_gabor_sti))
 
         return final_image
 
@@ -320,7 +326,7 @@ class BW_Grating(JiaGrating):
     Sums stimuli over channels and option to crop stimulus field. 
     '''
     
-    def __init__(self, ori_deg, outer_radius, inner_radius, degree_per_pixel, grating_contrast, edge_deg, phase=0, jitter=0, snr=1.0, k=None, crop_f=None):
+    def __init__(self, ori_deg, outer_radius, inner_radius, degree_per_pixel, grating_contrast, edge_deg, phase=0, jitter=0, snr=1.0, std = 0, k=None, crop_f=None):
         
         self.crop_f=crop_f
         pixel_per_degree=1/degree_per_pixel
@@ -328,7 +334,7 @@ class BW_Grating(JiaGrating):
         spatial_frequency = k*degree_per_pixel
         
                 
-        super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, spatial_frequency)
+        super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, std, spatial_frequency)
         
     def BW_image(self):
         
@@ -341,8 +347,7 @@ class BW_Grating(JiaGrating):
         #crop image
         if self.crop_f:
             image=image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]            
-        return image
-    
+        return image 
 
 
 #CREATE INPUT STIMULI
