@@ -10,6 +10,7 @@ import numpy
 from numpy.random import binomial
 
 
+
 #####  ORIGINAL UTIL ####
 
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, silent=False):
@@ -56,7 +57,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         
         
         if n > Nmin:
-            if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
+            if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol: # y
                 if verbose:
                     print("      converged to fixed point at iter={},      as max(abs(dx./max(xvec,{}))) < {} ".format(n, xmin, xtol))
                 CONVG = True
@@ -110,13 +111,17 @@ def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin
     Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
     CONVG = False
+    y = []
     
     for n in range(Nmax):
         dx = dxdt(xvec) * dt
         xvec = xvec + dx
-        
+        y.append(np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max())
+    
+    y = np.asarray(y)  
+    avg_dx = y[int(Nmax/2):int(Nmax)].mean()/xtol
     CONVG = np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol
-    return xvec, CONVG
+    return xvec, CONVG, avg_dx
 
 #### CREATE GABOR FILTERS ####
 class GaborFilter:
@@ -286,6 +291,7 @@ class JiaGrating:
 
         gabor_sti[numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)) > self.grating_size] = _GRAY
         
+        #New noise
         noise = numpy.random.normal(loc=0, scale=self.std, size = (d,d))
         noisy_gabor_sti = gabor_sti + noise
 
@@ -294,7 +300,7 @@ class JiaGrating:
         
         #noise_mask = binomial(1, 1-self.snr, size=(d, d)).astype(int)
         
-        #masked_noise = noise * noise_mask
+       #masked_noise = noise * noise_mask
 
         #signal_mask = 1 - noise_mask
         #masked_gabor_sti = signal_mask * gabor_sti
@@ -332,6 +338,7 @@ class BW_Grating(JiaGrating):
         pixel_per_degree=1/degree_per_pixel
         size=int(edge_deg*2 *pixel_per_degree) + 1
         spatial_frequency = k*degree_per_pixel
+        
         
                 
         super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, std, spatial_frequency)
@@ -489,3 +496,4 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
     
     
     return SSN_filters, A
+

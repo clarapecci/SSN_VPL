@@ -106,13 +106,13 @@ class _SSN_Base(object):
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        r_fp, CONVG = Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
-        
+        r_fp, CONVG, avg_dx = Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
+
         #if not CONVG and not silent:
         #    print('Did not reach fixed point.')
         #else:
         #    return r_fp
-        return r_fp, CONVG
+        return r_fp, CONVG, avg_dx
 
     def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
         if x_init is None:
@@ -591,8 +591,14 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
 
 
         SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
+        
+        #remove mean so that input to constant grating is 0
+        SSN_filters = SSN_filters - np.mean(SSN_filters, axis=1)[:, None]
 
         A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+        
+        #Normalise Gabor filters
+        SSN_filters = SSN_filters*A
         
         return SSN_filters, A
     
