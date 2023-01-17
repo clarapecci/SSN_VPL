@@ -6,6 +6,8 @@ from random import random
 from scipy.stats import norm
 import jax.numpy as np
 from jax import random
+import pandas as pd
+import matplotlib.pyplot as plt
 import numpy 
 from numpy.random import binomial
 
@@ -256,7 +258,7 @@ _GRAY = round((_WHITE + _BLACK) / 2)
 
 class JiaGrating:
 
-    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr=1.0, std = 0, spatial_frequency=None, ):
+    def __init__(self, ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, std = 0, spatial_frequency=None, ):
         self.ori_deg = ori_deg
         self.size = size
 
@@ -266,7 +268,6 @@ class JiaGrating:
         self.grating_contrast = grating_contrast
         self.phase = phase
         self.jitter =  jitter
-        self.snr = snr
         self.std = std
 
         self.smooth_sd = self.pixel_per_degree / 6
@@ -291,7 +292,7 @@ class JiaGrating:
 
         gabor_sti[numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)) > self.grating_size] = _GRAY
         
-        #New noise
+        #New noise - Gaussian white noise
         noise = numpy.random.normal(loc=0, scale=self.std, size = (d,d))
         noisy_gabor_sti = gabor_sti + noise
 
@@ -332,7 +333,7 @@ class BW_Grating(JiaGrating):
     Sums stimuli over channels and option to crop stimulus field. 
     '''
     
-    def __init__(self, ori_deg, outer_radius, inner_radius, degree_per_pixel, grating_contrast, edge_deg, phase=0, jitter=0, snr=1.0, std = 0, k=None, crop_f=None):
+    def __init__(self, ori_deg, outer_radius, inner_radius, degree_per_pixel, grating_contrast, edge_deg, phase=0, jitter=0, std = 0, k=None, crop_f=None):
         
         self.crop_f=crop_f
         pixel_per_degree=1/degree_per_pixel
@@ -341,7 +342,7 @@ class BW_Grating(JiaGrating):
         
         
                 
-        super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, snr, std, spatial_frequency)
+        super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, std, spatial_frequency)
         
     def BW_image(self):
         
@@ -497,3 +498,144 @@ def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pix
     
     return SSN_filters, A
 
+
+
+## PLOT INITIALIZATION HISTOGRAM
+import numpy
+def vmap_eval2(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars):
+    '''
+    For a given value of the weights, calculate the loss for all the stimuli.
+    Output:
+        losses: size(n_stimuli)
+        Accuracy: scalar
+    '''
+    
+    eval_vmap = vmap(eval_model, in_axes = ({'b_sig': None, 'logJ_2x2': None, 'logs_2x2': None, 'w_sig': None, 'c_E':None, 'c_I':None}, None, None, {'PERIODIC': None, 'p_local': [None, None], 'sigma_oris': None},  {'ref':0, 'target':0, 'label':0}, {'conv_factor': None, 'degree_per_pixel': None, 'edge_deg': None, 'k': None, 'sigma_g': None}, {'Tmax': None, 'dt': None, 'silent': None, 'verbose': None, 'xtol': None}) )
+    losses, pred_labels, dots = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
+        
+    accuracy = np.sum(test_data['label'] == pred_labels)/len(test_data['label']) 
+    
+    return losses, accuracy, dots
+
+def vmap_eval3(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars):
+    '''
+    Iterates through all values of 'w' to give the losses at each stimuli and weight, and the accuracy at each weight
+    Output:
+        losses: size(n_weights, n_stimuli )
+        accuracy: size( n_weights)
+    '''
+
+    eval_vmap = vmap(vmap_eval2, in_axes = ({'b_sig': None, 'logJ_2x2': None, 'logs_2x2': None, 'w_sig': 0, 'c_E':None, 'c_I':None}, None, None, {'PERIODIC': None, 'p_local': [None, None], 'sigma_oris': None},  {'ref':None, 'target':None, 'label':None}, {'conv_factor': None, 'degree_per_pixel': None, 'edge_deg': None, 'k': None, 'sigma_g': None}, {'Tmax': None, 'dt': None, 'silent': None, 'verbose': None, 'xtol': None}) )
+    losses, accuracies, dots = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
+    print(losses.shape)
+    print(accuracies.shape)
+    return losses, accuracies
+    
+    
+def test_accuracies(opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars,  conv_pars, stimuli_pars, trials = 5, p = 0.9, printing=True):
+    
+    key = random.PRNGKey(7)
+    N_neurons = 25
+    accuracies = []
+    key, _ = random.split(key)
+    opt_pars['w_sig'] = random.normal(key, shape = (trials, N_neurons)) / np.sqrt(N_neurons)
+    
+    train_data = create_data(stimuli_pars)
+    
+    print(opt_pars['w_sig'].shape)
+    val_loss, accuracies = vmap_eval3(opt_pars, ssn_pars, grid_pars, conn_pars, train_data, filter_pars,  conv_pars)
+    
+    #calcualate how many accuracies are above 90
+    higher_90 = np.sum(accuracies[accuracies>p]) / len(accuracies)
+
+    if printing:
+        print('grating contrast = {}, jitter = {}, noise std={}, acc (% >90 ) = {}'.format(stimuli_pars['grating_contrast'], stimuli_pars['jitter_val'], stimuli_pars['std'], higher_90))
+    return higher_90, accuracies
+
+
+def initial_acc( opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars,  conv_pars, stimuli_pars, jitter_max,  std_max, p = 0.9):
+    '''
+    Find initial accuracy for varying jitter and noise levels. 
+    
+    '''
+
+    
+    list_noise  = np.linspace(20, std_max, 5)
+    list_jitters = np.linspace(0, jitter_max, 5)
+   
+    
+    low_acc=[]
+    all_accuracies=[]
+    
+    
+    for noise in list_noise:
+        for jitter in list_jitters:
+            
+            stimuli_pars['std'] = noise
+            stimuli_pars['jitter_val'] = jitter
+            higher_90, acc = test_accuracies(opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars, conv_pars, stimuli_pars, p=p,  trials=100, printing=False)
+            
+            #save low accuracies
+            if higher_90 < 0.05:
+                low_acc.append([jitter, noise, higher_90])
+
+            all_accuracies.append([jitter, noise, acc])
+    
+    plot_histograms(all_accuracies)
+        
+    
+    return all_accuracies, low_acc
+
+
+def plot_histograms(all_accuracies):
+    
+    #n_rows =  int(np.sqrt(len(all_accuracies)))
+    #n_cols = int(np.ceil(len(all_accuracies) / n_rows))
+    n_cols = 5
+    n_rows = 5
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(15, 20))
+    fig.subplots_adjust(wspace=0.5, hspace=0.5)
+
+    count = 0
+
+    
+   #plot histograms
+    for k in range(n_rows):
+        for j in range (n_cols):
+            axs[k,j].hist(all_accuracies[count][2])
+            axs[k,j].set_xlabel('Initial accuracy')
+            axs[k,j].set_ylabel('Frequency')
+            axs[k,j].set_title('std = '+str(np.round(all_accuracies[count][1], 2))+ ' jitter = '+str(np.round(all_accuracies[count][0], 2)), fontsize=10)
+            count+=1
+            if count==len(all_accuracies):
+                break
+    
+    fig.show()
+    
+###ANALYSE RESULTS    
+def param_ratios(results_file):
+    results = pd.read_csv(results_file, header = 0)
+    res = results.to_numpy()
+    Js=res[:,1:5]
+    ss = res[:,5:9]
+    #print(Js.type())
+    print(results.columns[1:5])
+    print("J ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100, dtype=int))
+    print(results.columns[5:9])
+    print(ss[-1,:]/ss[0,:])
+    print("s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
+    
+
+def plot_results(results_file, title=None):
+    
+    results = pd.read_csv(results_file, header = 0)
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
+
+    results.plot(x='epoch', y=["J_EE", "J_EI", "J_IE", "J_II"], ax=axes[0,0])
+    results.plot(x='epoch', y=["s_EE", "s_EI", "s_IE", "s_II"], ax = axes[0,1])
+    results.plot(x='epoch', y=["c_E", "c_I"], ax = axes[1,0])
+    results.plot(x='epoch', y = 'val_accuracy', ax = axes[1,1])
+    
+    if title:
+        fig.suptitle(title)
+    fig.show()
