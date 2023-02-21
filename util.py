@@ -6,9 +6,11 @@ from random import random
 from scipy.stats import norm
 import jax.numpy as np
 from jax import random
+from jax import vmap
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy 
+from torch.utils.data import DataLoader
 from numpy.random import binomial
 
 
@@ -44,8 +46,8 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
             N = x_initial.shape[0] # x_initial.size
             inds = [int(N/4), int(3*N/4)]
         xplot = x_initial[inds][:,None]
-    Nmax = int(np.round(Tmax/dt))
-    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
+    Nmax = np.round(Tmax/dt).astype(int)
+    Nmin = np.round(Tmin/dt) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
     CONVG = False
     
@@ -109,13 +111,13 @@ def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin
             N = x_initial.shape[0] # x_initial.size
             inds = [int(N/4), int(3*N/4)]
         xplot = x_initial[inds][:,None]
-    Nmax = int(np.round(Tmax/dt))
-    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else (Nmax/2)
+    Nmax = (np.round(Tmax/dt)).astype(int)
+    #Nmin = (np.round(Tmin/dt)).astype(int) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
     CONVG = False
     y = []
     
-    for n in range(Nmax):
+    for n in range(Nmax.astype(int)):
         dx = dxdt(xvec) * dt
         xvec = xvec + dx
         y.append(np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max())
@@ -124,6 +126,10 @@ def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin
     avg_dx = y[int(Nmax/2):int(Nmax)].mean()/xtol
     CONVG = np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol
     return xvec, CONVG, avg_dx
+
+
+    
+
 
 #### CREATE GABOR FILTERS ####
 class GaborFilter:
@@ -273,7 +279,7 @@ class JiaGrating:
         self.smooth_sd = self.pixel_per_degree / 6
         self.spatial_freq = spatial_frequency or (1 / self.pixel_per_degree)
         self.grating_size = round(self.outer_radius * self.pixel_per_degree)
-        self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * math.pi
+        self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * numpy.pi
 
     def image(self):
         x, y = numpy.mgrid[-self.grating_size:self.grating_size+1., -self.grating_size:self.grating_size+1.]
@@ -351,6 +357,7 @@ class BW_Grating(JiaGrating):
         
         #sum image over channels
         image=numpy.sum(original, axis=2) 
+        
         
         #crop image
         if self.crop_f:
@@ -466,37 +473,6 @@ def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, return
 
 
 
-#CREATE FILTERS
-def create_gabor_filters(ssn, conv_factor, k, sigma_g, edge_deg,  degree_per_pixel):
-    
-    e_filters=[] #array of filters
-
-    #Iterate over SSN map
-    for i in range(ssn.ori_map.shape[0]):
-        for j in range(ssn.ori_map.shape[1]):
-            gabor=GaborFilter(x_i=ssn.x_map[i,j], y_i=ssn.y_map[i,j], edge_deg=edge_deg, k=k, sigma_g=sigma_g, theta=ssn.ori_map[i,j], conv_factor=conv_factor, degree_per_pixel=degree_per_pixel)
-
-            e_filters.append(gabor.filter.ravel())
-    e_filters=np.array(e_filters)
-
-    #create inhibitory filters
-    i_constant= 1
-    i_filters=np.multiply(i_constant, e_filters)
-    all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
-    
-    #create filters with phase equal to pi
-    e_off_filters = - e_filters
-    i_off_filters = - i_filters
-    
-    
-    #SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
-    SSN_filters = np.vstack([e_filters, i_filters])
-    
-    A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(ssn.ori_map.ravel()))
-    
-    
-    
-    return SSN_filters, A
 
 
 
@@ -510,12 +486,12 @@ def vmap_eval2(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,
         Accuracy: scalar
     '''
     
-    eval_vmap = vmap(eval_model, in_axes = ({'b_sig': None, 'logJ_2x2': None, 'logs_2x2': None, 'w_sig': None, 'c_E':None, 'c_I':None}, None, None, {'PERIODIC': None, 'p_local': [None, None], 'sigma_oris': None},  {'ref':0, 'target':0, 'label':0}, {'conv_factor': None, 'degree_per_pixel': None, 'edge_deg': None, 'k': None, 'sigma_g': None}, {'Tmax': None, 'dt': None, 'silent': None, 'verbose': None, 'xtol': None}) )
-    losses, pred_labels, dots = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
+    eval_vmap = vmap(model, in_axes = ({'b_sig': None, 'logJ_2x2': None, 'logs_2x2': None, 'w_sig': None, 'c_E':None, 'c_I':None}, None, None, {'PERIODIC': None, 'p_local': [None, None], 'sigma_oris': None},  {'ref':0, 'target':0, 'label':0}, {'conv_factor': None, 'degree_per_pixel': None, 'edge_deg': None, 'k': None, 'sigma_g': None}, {'Tmax': None, 'dt': None, 'silent': None, 'verbose': None, 'xtol': None}) )
+    losses, pred_labels = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
         
     accuracy = np.sum(test_data['label'] == pred_labels)/len(test_data['label']) 
     
-    return losses, accuracy, dots
+    return losses, accuracy
 
 def vmap_eval3(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars):
     '''
@@ -526,7 +502,7 @@ def vmap_eval3(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,
     '''
 
     eval_vmap = vmap(vmap_eval2, in_axes = ({'b_sig': None, 'logJ_2x2': None, 'logs_2x2': None, 'w_sig': 0, 'c_E':None, 'c_I':None}, None, None, {'PERIODIC': None, 'p_local': [None, None], 'sigma_oris': None},  {'ref':None, 'target':None, 'label':None}, {'conv_factor': None, 'degree_per_pixel': None, 'edge_deg': None, 'k': None, 'sigma_g': None}, {'Tmax': None, 'dt': None, 'silent': None, 'verbose': None, 'xtol': None}) )
-    losses, accuracies, dots = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
+    losses, accuracies = eval_vmap(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars)
     print(losses.shape)
     print(accuracies.shape)
     return losses, accuracies
@@ -616,26 +592,43 @@ def plot_histograms(all_accuracies):
 def param_ratios(results_file):
     results = pd.read_csv(results_file, header = 0)
     res = results.to_numpy()
-    Js=res[:,1:5]
-    ss = res[:,5:9]
+    Js=res[:,2:6]
+    ss = res[:,6:10]
     #print(Js.type())
-    print(results.columns[1:5])
+    print(results.columns[2:6])
     print("J ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100, dtype=int))
-    print(results.columns[5:9])
+    print(results.columns[6:10])
     print(ss[-1,:]/ss[0,:])
     print("s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
     
 
-def plot_results(results_file, title=None):
-    
-    results = pd.read_csv(results_file, header = 0)
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
 
-    results.plot(x='epoch', y=["J_EE", "J_EI", "J_IE", "J_II"], ax=axes[0,0])
-    results.plot(x='epoch', y=["s_EE", "s_EI", "s_IE", "s_II"], ax = axes[0,1])
-    results.plot(x='epoch', y=["c_E", "c_I"], ax = axes[1,0])
-    results.plot(x='epoch', y = 'val_accuracy', ax = axes[1,1])
     
-    if title:
-        fig.suptitle(title)
-    fig.show()
+
+def create_data(stimuli_pars, number=100, offset = 5, ref_ori=55):
+    
+    '''
+    Create data for given jitter and noise value for testing (not dataloader)
+    '''
+    data = create_gratings(ref_ori=ref_ori, number=number, offset=offset, **stimuli_pars)
+    train_data = next(iter(DataLoader(data, batch_size=len(data), shuffle=False)))
+    train_data['ref'] = train_data['ref'].numpy()
+    train_data['target'] = train_data['target'].numpy()
+    train_data['label'] = train_data['label'].numpy()
+    
+    return train_data
+
+def plot_losses(training_losses, save_file = None):
+    plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Total'] )
+    plt.legend()
+    if save_file:
+        plt.savefig(save_file)
+    else:
+        plt.show()
+    
+def ratio_w(new_pars, opt_pars ):
+    all_ratios = []
+    for i in range(len(new_pars['w_sig'])):
+        all_ratios.append((new_pars['w_sig'][i] / opt_pars['w_sig'][i] - 1 )*100)
+        
+    return np.asarray(all_ratios)
