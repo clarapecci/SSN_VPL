@@ -1,6 +1,10 @@
 import jax.numpy as np
 from util import Euler2fixedpt
 from jax import random
+from functools import partial
+import jax
+
+from util import  find_A, GaborFilter
 
 class _SSN_Base(object):
     def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None):
@@ -47,12 +51,7 @@ class _SSN_Base(object):
         return  self.k * np.maximum(0,u)**self.n
 
     def drdt(self, r, inp_vec):
-        if np.isnan(r).any() ==True:
-            print('nan value in r')
-        if np.isnan(self.W).any() ==True:
-            print('nan value in W')
-        if np.isinf(self.W).any() ==True:
-            print('inf value in W')
+
         return ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
 
     def drdt_multi(self, r, inp_vec):
@@ -112,12 +111,44 @@ class _SSN_Base(object):
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        r_fp, CONVG = Euler2fixedpt(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, verbose=verbose, silent=silent)
-        if not CONVG and not silent:
-            print('Did not reach fixed point.')
+        r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT)
+       
         #else:
         #    return r_fp
-        return r_fp, CONVG
+        return r_fp, CONVG, avg_dx
+    
+    
+    @partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
+    def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False):
+        
+        if PLOT:
+            if inds is None:
+                N = x_initial.shape[0] # x_initial.size
+                inds = [int(N/4), int(3*N/4)]
+            xplot = x_initial[inds][:,None]
+        
+        Nmax = int(Tmax/dt)
+        
+        #Nmin = (np.round(Tmin/dt)).astype(int) if Tmax > Tmin else (Nmax/2)
+        xvec = x_initial 
+        CONVG = False
+        y = np.zeros(((Nmax)))
+        
+        def loop(n, carry):
+            xvec, y = carry
+            dx = dxdt(xvec) * dt
+            xvec = xvec + dx
+            y = y.at[n].set(np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max())
+            return (xvec, y)
+
+        xvec, y = jax.lax.fori_loop(0, Nmax, loop, (xvec, y))
+        
+       
+        avg_dx = y[int(Nmax/2):int(Nmax)].mean()/xtol
+        
+        #CONVG = np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol
+        CONVG = False ##NEEDS UPDATING
+        return xvec, CONVG, avg_dx
 
     def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
         if x_init is None:
@@ -372,8 +403,12 @@ class _SSN_AMPAGABA_Base(_SSN_Base):
 class SSN2DTopoV1(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, n, k, tauE, tauI, grid_pars, conn_pars, **kwargs):
+    def __init__(self, ssn_pars, grid_pars, conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, **kwargs):
         Ni = Ne = grid_pars.gridsize_Nx**2
+        n=ssn_pars.n
+        k=ssn_pars.k
+        tauE= ssn_pars.tauE
+        tauI=ssn_pars.tauI
         tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
 
         super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
@@ -382,8 +417,26 @@ class SSN2DTopoV1(_SSN_Base):
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
         self._make_maps(grid_pars)
+
+            
+            
+        edge_deg = filter_pars.edge_deg
+        sigma_g = filter_pars.sigma_g
+        k = filter_pars.k
+        conv_factor =  filter_pars.conv_factor
+        degree_per_pixel = filter_pars.degree_per_pixel
+        
+        A=ssn_pars.A
+        
+        if A==None:
+            self.gabor_filters, self.A = self.create_gabor_filters(edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE, gI)
+        if A:
+            self.gabor_filters, self.A = self.create_gabor_filters(edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE, gI, A)
+        
         if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
-            self.make_W(**conn_pars)
+            
+            #self.make_W(J_2x2, s_2x2, **conn_pars)
+            self.make_W(J_2x2, s_2x2, sigma_oris, conn_pars)
 
     @property
     def neuron_params(self):
@@ -544,7 +597,7 @@ class SSN2DTopoV1(_SSN_Base):
         return xy_dist, ori_dist  
 
     
-    def make_W(self, J_2x2, s_2x2, p_local, sigma_oris=45, Jnoise=0,
+    def make_W(self, J_2x2, s_2x2, sigma_oris, p_local, Jnoise=0,
                 Jnoise_GAUSSIAN=True, MinSyn=1e-4, CellWiseNormalized=True,
                                                     PERIODIC=True): #, prngKey=0):
         """
@@ -557,9 +610,12 @@ class SSN2DTopoV1(_SSN_Base):
         Output/side-effects:
         self.W
         """
-        conn_pars = locals()
-        conn_pars.pop("self")
-        self.conn_pars = conn_pars
+        #conn_pars = locals()
+        #conn_pars.pop("self")
+        #self.conn_pars = conn_pars
+       
+        PERIODIC = self.conn_pars.PERIODIC
+        p_local = self.conn_pars.p_local
 
         if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
             xy_dist = self.xy_dist
@@ -567,8 +623,10 @@ class SSN2DTopoV1(_SSN_Base):
         else:
             xy_dist, ori_dist = self._make_distances(PERIODIC)
 
-        if np.isscalar(sigma_oris): sigma_oris = sigma_oris * np.ones((2,2))
-
+        if np.shape(sigma_oris) == (1,): sigma_oris = sigma_oris * np.ones((2,2))
+        
+        elif np.shape(sigma_oris) == (2,): sigma_oris = np.ones((2,1)) * np.array(sigma_oris) 
+        
         if np.isscalar(p_local) or len(p_local) == 1:
             p_local = np.asarray(p_local) * np.ones(2)
 
@@ -614,7 +672,66 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.W = np.block(Wblks)
         return self.W
+    
+    
+    
+    def create_gabor_filters(self, edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE = 1, gI = 1, A=None):
+    
+        e_filters=[] #array of filters
 
+        #Iterate over SSN map
+        for i in range(self.ori_map.shape[0]):
+            for j in range(self.ori_map.shape[1]):
+                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=edge_deg, k=k, sigma_g=sigma_g, theta=self.ori_map[i,j], conv_factor=conv_factor, degree_per_pixel=degree_per_pixel)
+
+                e_filters.append(gabor.filter.ravel())
+        e_filters=np.array(e_filters)
+
+        #create inhibitory filters
+        #i_constant= gI / gE
+        e_filters = gE * e_filters
+        i_filters = gI * e_filters
+        SSN_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))        
+        
+        #remove mean so that input to constant grating is 0
+        SSN_filters = SSN_filters - np.mean(SSN_filters, axis=1)[:, None]
+        if A == None:
+            A= find_A(return_all =False, conv_factor=conv_factor, k=k, sigma_g=sigma_g, edge_deg=edge_deg,  degree_per_pixel=degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+        
+        #Normalise Gabor filters
+        SSN_filters = SSN_filters*A
+        
+        return SSN_filters, A
+    
+    
+    def select_type(self, vec, select='E'):
+    
+        assert vec.ndim == 1
+        maps = self.vec2map(vec)
+
+        if select=='E':
+            output = maps[0]
+
+        if select =='I':
+            output=maps [1]
+
+        return output
+    
+    
+    @partial(jax.jit, static_argnums = (0, 2, 3))
+    def apply_bounding_box(self, vec, size = 3.2, select='E'):
+
+        map_vec = self.select_type(vec, select)
+
+        size = int(size / (self.grid_pars.dx)) +1
+
+        start = int((self.grid_pars.gridsize_Nx - size) / 2)   
+        
+        map_vec = jax.lax.dynamic_slice(map_vec, (start, start), (size, size))
+
+        return map_vec
+
+'''
     def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
         """
         makes the orintation dependence factor for grating or Gabor stimuli
@@ -724,6 +841,6 @@ class SSN2DTopoV1(_SSN_Base):
             (LFPradius**2 > (self.x_vec - xy[0])**2 + (self.y_vec - xy[1])**2)))
 
         return np.asarray(e_LFP).T
-    
+'''    
 class SSN2DTopoV1_AMPAGABA(SSN2DTopoV1, _SSN_AMPAGABA_Base):
     pass
