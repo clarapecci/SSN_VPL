@@ -128,6 +128,54 @@ def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin
     return xvec, CONVG, avg_dx
 
 
+def take_log(J_2x2):
+    
+    signs=np.array([[1, -1], [1, -1]])
+    logJ_2x2 =np.log(J_2x2*signs)
+    
+    return logJ_2x2
+
+
+def init_set_func(init_set, conn_pars, ssn_pars):
+    
+    
+    #ORIGINAL TRAINING!!
+    if init_set ==4:
+        Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
+        gE, gI = 1,1
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
+
+    if init_set ==0:
+        Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
+        gE, gI = 0.57328625, 0.26144141
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
+
+    if init_set ==1:
+        Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
+        gE, gI = 0.37328625, 0.26144141
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
+
+    if init_set==2:
+        Js0 = [1.72881688, 1.29887564, 1.48514091, 0.76417991]
+        gE, gI = 0.5821754, 0.22660373
+        sigEE, sigIE = 0.225, 0.242
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.0, 0.0]
+    
+    make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]]) * np.pi * ssn_pars.psi
+    J_2x2 = make_J2x2(*Js0)
+    s_2x2 = np.array([[sigEE, sigEI],[sigIE, sigII]])
+    
+    return J_2x2, s_2x2, gE, gI, conn_pars
+
+    
+    
     
 
 
