@@ -22,8 +22,8 @@ import time
 from torch.utils.data import DataLoader
 import numpy
 from util import create_gratings
-from training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, constant_to_vec
-from SSN_classes_jax_jit import SSN2DTopoV1_AMPAGABA_ONOFF
+from training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, constant_to_vec, take_log
+from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF
 
 def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False, s_2x2 = None):
     
@@ -67,7 +67,7 @@ def findRmax(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv
     return Rmax_E, Rmax_I
 
 
-def test_accuracy(J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type, number_trials = 20, batch_size = 500):
+def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 20, batch_size = 500):
     '''
     Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
     Input: 
@@ -77,13 +77,11 @@ def test_accuracy(J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, gr
     
     '''
     
-    vmap_model = vmap(new_model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
+    vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
     all_accs = []
     
     ssn=SSN2DTopoV1_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, gE=gE, gI=gI, sigma_oris=sigma_oris)
-    ssn._make_maps()
-    ssn.create_gabor_filters()
-    ssn._make_distances()
+    ssn_ori_map = ssn.ori_map
     
     logJ_2x2 =take_log(J_2x2)
     logs_2x2 = np.log(s_2x2)
@@ -92,7 +90,8 @@ def test_accuracy(J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, gr
     for i in range(number_trials):
         test_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
     
-        val_losses, _, pred_label, _ = vmap_model(ssn, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type)
+        _, _, pred_label, _, _ = vmap_model(ssn_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
+                         
         true_accuracy = np.sum(test_data['label'] == pred_label)/len(test_data['label']) 
         all_accs.append(true_accuracy)
    
@@ -100,10 +99,26 @@ def test_accuracy(J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, gr
     plt.xlabel('Accuracy')
     plt.ylabel('Frequency')
     
-    return val_losses
+    if save:
+            plt.savefig(save+'.png')
+    
+    plt.show()  
+    plt.close() 
+    
+def plot_training_accs(training_accs, epoch_c = None, save=None):
+    
+    plt.plot(training_accs)
+    plt.xlabel('Epoch')
+    plt.ylabel('Training accuracy')
+    if epoch_c:
+        plt.axvline(x=epoch_c, c='r', label='criterion')
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close() 
     
 
-def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epochs_to_save, save=None):
+def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epochs_to_save, epoch_c = None, save=None):
     
     #Find maximum and minimum of 
     max_train_sig_input = [item.max() for item in train_sig_input]
@@ -125,6 +140,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
 
     #Create plots 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
+    #axes.vlines(x=epoch_c)
 
     axes[0,0].plot(max_train_sig_input, label='Max')
     axes[0,0].plot(mean_train_sig_input, label = 'Mean')
@@ -132,6 +148,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[0,0].set_xlabel('Epoch')
     axes[0,0].legend()
     axes[0,0].set_title('Input to sigmoid layer (training) ')
+    #axes[0,0].vlines(x=epoch_c)
 
     axes[0,1].plot(epochs_to_save, max_val_sig_input, label='Max')
     axes[0,1].plot(epochs_to_save, mean_val_sig_input, label = 'Mean')
@@ -139,6 +156,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[0,1].set_xlabel('Epoch')
     axes[0,1].legend()
     axes[0,1].set_title('Input to sigmoid layer (validation)')
+    #axes[0,1].vlines(x=epoch_c)
 
     axes[1,0].plot( max_train_sig_output, label='Max')
     axes[1,0].plot( mean_train_sig_output, label = 'Mean')
@@ -146,6 +164,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[1,0].set_xlabel('Epoch')
     axes[1,0].legend()
     axes[1,0].set_title('Output of sigmoid layer (training)')
+    #axes[1,0].vlines(x=epoch_c)
 
     axes[1,1].plot(epochs_to_save, max_val_sig_output, label='Max')
     axes[1,1].plot(epochs_to_save, mean_val_sig_output, label = 'Mean')
@@ -153,15 +172,17 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[1,1].set_xlabel('Epoch')
     axes[1,1].legend()
     axes[1,1].set_title('Output to sigmoid layer (validation)')
+    #axes[1,1].vlines(x=epoch_c)
 
     fig.subplots_adjust(wspace=0.4, hspace=0.4)
     
     if save:
             fig.savefig(save+'.png')
     fig.show()
+    plt.close()
 
 
-def plot_results(results_filename, bernoulli=True, save=None, norm_w = False):
+def plot_results(results_filename, bernoulli=True, epoch_c = None, save=None, norm_w = False):
     '''
     Read csv file with results and plot parameters against epochs. Option to plot norm of w if it is saved. 
     '''
@@ -190,9 +211,12 @@ def plot_results(results_filename, bernoulli=True, save=None, norm_w = False):
             results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[1,1])
     else:
             results.plot(x='epoch', y = ['val_accuracy'], ax = axes[1,1])
+            if epoch_c:
+                plt.axvline(x=epoch_c, c = 'r')
     if save:
             fig.savefig(save+'.png')
     fig.show()
+    plt.close()
 
 
     
@@ -300,14 +324,17 @@ def plot_results_two_layers(results_filename, bernoulli=True, save=None, norm_w=
     fig.show()
        
     
-def plot_losses(training_losses, validation_losses, epochs_to_save, save=None):
+def plot_losses(training_losses, validation_losses, epochs_to_save, epoch_c = None, save=None):
     plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
     plt.plot(epochs_to_save, validation_losses, label='Validation')
     plt.legend()
     plt.title('Training losses')
+    if epoch_c:
+        plt.axvline(x=epoch_c, c='r')
     if save:
         plt.savefig(save+'.png')
     plt.show()
+    plt.close()
     
 
     
