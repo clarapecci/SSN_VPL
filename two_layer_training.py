@@ -187,15 +187,16 @@ def sep_exponentiate(J_s):
 
     return new_J
 
-def create_param_1(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_s):
+def create_param_1(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, f, w_sig, b_sig, conn_pars_s):
     '''
     Training: logJ_2x2, log_s2x2, w_sig, b_sig, c_E, c_I
     '''
     
-    opt_pars = dict(logJ_2x2 = logJ_2x2, logs_2x2 = logs_2x2, w_sig = w_sig, b_sig=b_sig, c_E = c_E, c_I = c_I)
+    opt_pars = dict(logJ_2x2 = logJ_2x2, logs_2x2 = logs_2x2, w_sig = w_sig, b_sig=b_sig, c_E = c_E, c_I = c_I, f = f)
     conn_pars_s.sigma_oris = sigma_oris
 
     return opt_pars, conn_pars_s
+
 
 def create_param_2(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars):
     '''
@@ -218,7 +219,7 @@ def create_param_3(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_
     return opt_pars, conn_pars
     
 
-def create_param_4(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_m, conn_pars_s):
+def create_param_4(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, f, w_sig, b_sig, conn_pars_m, conn_pars_s):
     '''
     Training: w_sig, b_sig
     '''
@@ -228,6 +229,7 @@ def create_param_4(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_
     conn_pars_s.sigma_oris = sigma_oris
     conn_pars_m.c_E = c_E
     conn_pars_m.c_I = c_I
+    conn_pars_m.f = f
     
     opt_pars = dict(w_sig = w_sig, b_sig = b_sig)
 
@@ -239,7 +241,7 @@ def create_param_5(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_
     Training: logJ_2x2, log_s2x2, c_E, c_I
     '''
     
-    opt_pars = dict(logJ_2x2 = logJ_2x2, logs_2x2 = logs_2x2, c_E = c_E, c_I = c_I)
+    opt_pars = dict(logJ_2x2 = logJ_2x2, logs_2x2 = logs_2x2, c_E = c_E, c_I = c_I, f=f)
     conn_pars_s.sigma_oris = sigma_oris
     conn_pars_m.w_sig = w_sig
     conn_pars_m.b_sig = b_sig
@@ -253,10 +255,11 @@ def separate_param_1(opt_pars, conn_pars_s):
     c_I =opt_pars['c_I']
     w_sig = opt_pars['w_sig']
     b_sig = opt_pars['b_sig']
+    f = opt_pars['f']
     
     sigma_oris = conn_pars_s.sigma_oris
    
-    return logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris
+    return logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris
 
 def separate_param_2(opt_pars, conn_pars):
     
@@ -290,26 +293,28 @@ def separate_param_4(opt_pars, conn_pars_m, conn_pars_s):
     logs_2x2 = conn_pars_s.s_2x2
     sigma_oris = conn_pars_s.sigma_oris
     c_E = conn_pars_m.c_E
+    f = conn_pars_m.f
     c_I = conn_pars_m.c_I
     w_sig = opt_pars['w_sig']
     b_sig = opt_pars['b_sig']
     
-    return logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris
+    return logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris
 
 def separate_param_5(opt_pars, conn_pars_m, conn_pars_s):
     logJ_2x2 = opt_pars['logJ_2x2']
     logs_2x2 = opt_pars['logs_2x2']
     c_E =opt_pars['c_E']
     c_I =opt_pars['c_I']
+    f = opt_pars_['f']
     
     w_sig = conn_pars_m.w_sig
     b_sig = conn_pars_m.b_sig
     sigma_oris = conn_pars_s.sigma_oris
     
-    return logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris
+    return logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris
 
-@partial(jax.jit, static_argnums=(9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20), device = jax.devices()[0])
-def new_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris_s, ssn_pars, grid_pars, 
+@partial(jax.jit, static_argnums=(10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21), device = jax.devices()[0])
+def new_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris_s, ssn_pars, grid_pars, 
 conn_pars_m, conn_pars_s, gE, gI, train_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type='no_noise'):
 
     
@@ -317,7 +322,7 @@ conn_pars_m, conn_pars_s, gE, gI, train_data, filter_pars, conv_pars, loss_pars,
     J_2x2_s = sep_exponentiate(logJ_2x2[1])
     s_2x2_s = np.exp(logs_2x2)
     sigma_oris_s = np.exp(sigma_oris_s)
-    fE, fI = 1,1
+    
         
     #Create vector using extrasynaptic constants
     constant_vector = constant_to_vec(c_E, c_I)
@@ -341,8 +346,8 @@ conn_pars_m, conn_pars_s, gE, gI, train_data, filter_pars, conv_pars, loss_pars,
     r_target_mid, r_max_target_mid, avg_dx_target_mid = middle_layer_fixed_point(ssn_mid, SSN_input_target, conv_pars)
     
     #Input to superficial layer
-    sup_input_ref = np.hstack([r_ref_mid*fE, r_ref_mid*fI]) + constant_vector_sup
-    sup_input_target = np.hstack([r_target_mid*fE, r_target_mid*fI]) + constant_vector_sup
+    sup_input_ref = np.hstack([r_ref_mid*f, r_ref_mid*f]) + constant_vector_sup
+    sup_input_target = np.hstack([r_target_mid*f, r_target_mid*f]) + constant_vector_sup
     
     #Find fixed point for superficial layer
     r_ref, r_max_ref_sup, avg_dx_ref_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars)
@@ -403,7 +408,7 @@ def loss(opt_pars, ssn_mid_ori_map, ssn_sup_ori_map, ssn_pars, grid_pars, conn_p
     
     #Separate parameters
     if model_type==1:
-        logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris = separate_param_1(opt_pars, conn_pars_s)
+        logJ_2x2, logs_2x2, c_E, c_I, f,  w_sig, b_sig, sigma_oris = separate_param_1(opt_pars, conn_pars_s)
         
     if model_type==2:
         logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris = separate_param_2(opt_pars, conn_pars_m, conn_pars_s)
@@ -412,12 +417,12 @@ def loss(opt_pars, ssn_mid_ori_map, ssn_sup_ori_map, ssn_pars, grid_pars, conn_p
         logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris = separate_param_3(opt_pars, conn_pars_m, conn_pars_s)
     
     if model_type ==4:
-        logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris = separate_param_4(opt_pars, conn_pars_m, conn_pars_s)
+        logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris = separate_param_4(opt_pars, conn_pars_m, conn_pars_s)
         
     if model_type ==5:
-        logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris = separate_param_5(opt_pars, conn_pars_m, conn_pars_s)
+        logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris = separate_param_5(opt_pars, conn_pars_m, conn_pars_s)
     
-    total_loss, all_losses, pred_label, sig_input, x= vmap_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, 
+    total_loss, all_losses, pred_label, sig_input, x= vmap_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, 
 conn_pars_m, conn_pars_s, gE, gI, data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
     
     loss= np.mean(total_loss)
@@ -431,7 +436,7 @@ conn_pars_m, conn_pars_s, gE, gI, data, filter_pars, conv_pars, loss_pars, sig_n
 
     
     
-def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, results_dir = None, early_stop = 0.6):
+def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, results_dir = None, early_stop = 0.7):
           
     #Initialize loss
     val_loss_per_epoch = []
@@ -460,11 +465,11 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
     ssn_sup_ori_map = ssn_mid.ori_map
     
     #Initialise vmap version of model
-    vmap_model = vmap(new_model, in_axes = (None, None, [None, None], None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
+    vmap_model = vmap(new_model, in_axes = (None, None, [None, None], None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
     
     #Separate parameters used in optimisation
     if model_type ==1:
-        opt_pars, conn_pars_s = create_param_1(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_s)
+        opt_pars, conn_pars_s = create_param_1(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, f, w_sig, b_sig, conn_pars_s)
     
     if model_type==2:
         opt_pars, conn_pars_m, conn_pars_s = create_param_2(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_m, conn_pars_s)
@@ -473,10 +478,10 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
         opt_pars, conn_pars_m, conn_pars_s = create_param_3(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_m, conn_pars_sn_pars)
     
     if model_type ==4:
-        opt_pars, conn_pars_m, conn_pars_s= create_param_4(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_m, conn_pars_s)
+        opt_pars, conn_pars_m, conn_pars_s= create_param_4(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, f, w_sig, b_sig, conn_pars_m, conn_pars_s)
         
     if model_type ==5:
-        opt_pars, conn_pars_m, conn_pars_s = create_param_5(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, conn_pars_m, conn_pars_s)
+        opt_pars, conn_pars_m, conn_pars_s = create_param_5(logJ_2x2, logs_2x2, sigma_oris, c_E, c_I, f, w_sig, b_sig, conn_pars_m, conn_pars_s)
     
     #Initialise optimizer
     optimizer = optax.adam(eta)
@@ -514,6 +519,7 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
         print('#### NOT SAVING! ####')
     
     loss_and_grad = jax.value_and_grad(loss, has_aux = True)
+    test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir+ '_before_training'), number_trials = 20, batch_size = 500, vmap_model = vmap_model)
     
     for epoch in range(1, epochs+1):
         start_time = time.time()
@@ -559,6 +565,10 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
                 save_w_sigs.append(opt_pars['w_sig'][:5])
             
         if epoch>=epoch_c+20:
+            w_sig = opt_pars['w_sig']
+            b_sig = opt_pars['b_sig']
+            test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir+'_breaking'), number_trials = 20, batch_size = 500, vmap_model = vmap_model)
+            
             print('Breaking at epoch {}'.format(epoch))
             break
     
@@ -580,7 +590,7 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
         
     if model_type ==4:
         save_w_sigs = np.asarray(np.vstack(save_w_sigs))
-        plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir, 'w_sig_evolution') )
+        plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir+'_w_sig_evolution') )
         w_sig = opt_pars['w_sig']
         b_sig = opt_pars['b_sig']
     
@@ -602,7 +612,7 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
         b_sig = opt_pars['b_sig']
         sigma_oris = np.exp(sigma_oris)
 
-    test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir, 'train_hist') , vmap_model = vmap_model)
+    test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir+'_inside_function'), number_trials = 20, batch_size = 500, vmap_model = vmap_model)
    
    
     return opt_pars, val_loss_per_epoch, all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epoch_c, save_w_sigs
@@ -610,7 +620,7 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, w_sig, b_sig
 
 
 
-def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 5, batch_size = 5, vmap_model = None):
+def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 5, batch_size = 5, vmap_model = None):
     '''
     Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
     Input: 
@@ -620,7 +630,7 @@ def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E,
     
     '''
     if vmap_model ==None:
-        vmap_model = vmap(new_model, in_axes = (None, None, [None, None], None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
+        vmap_model = vmap(new_model, in_axes = (None, None, [None, None], None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
     
     all_accs = []
     
@@ -628,6 +638,7 @@ def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E,
     ssn_mid_ori_map = ssn_mid.ori_map
     ssn_sup_ori_map = ssn_mid.ori_map
 
+    print('w_sig ', w_sig[:5])
     
     logJ_2x2_s =take_log(J_2x2_s)
     logs_2x2 = np.log(s_2x2_s)
@@ -639,7 +650,7 @@ def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E,
         
         testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
         
-        _, _, pred_label, _, _ =vmap_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris_s, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
+        _, _, pred_label, _, _ =vmap_model(ssn_mid_ori_map, ssn_sup_ori_map, logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris_s, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
                          
         true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
         all_accs.append(true_accuracy)

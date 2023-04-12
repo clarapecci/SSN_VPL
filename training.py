@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 import numpy
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF
 from util import GaborFilter, BW_Grating, find_A, create_gratings, param_ratios, create_data, take_log
+#jax.config.update("jax_enable_x64", True)
 
 
     
@@ -322,6 +323,7 @@ conn_pars, gE, gI, train_data, filter_pars, conv_pars, loss_pars, sig_noise, noi
     sig_input = np.dot(w_sig, (delta_x)) + b_sig
     
     x = sigmoid( np.dot(w_sig, (delta_x)) + b_sig)
+    
 
     #Calculate losses
     loss_binary=binary_loss(train_data['label'], x)
@@ -333,8 +335,11 @@ conn_pars, gE, gI, train_data, filter_pars, conv_pars, loss_pars, sig_noise, noi
     #Combine all losses
     loss = loss_binary +  loss_avg_dx + loss_r_max  + loss_w + loss_b
     all_losses = np.vstack((loss_binary, loss_avg_dx, loss_r_max, loss_w, loss_b, loss))
+
+    #print(loss_binary.shape(), loss_avg_dx.shape(), loss_r_max.shape(), loss_b.shape(), loss.shape())
     
     pred_label = np.round(x) 
+   
    
     return loss, all_losses, pred_label, delta_x, x
 
@@ -371,7 +376,7 @@ def loss(opt_pars, ssn_ori_map, ssn_pars, grid_pars, conn_pars, gE, gI, data, fi
 
     
     
-def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, grid_pars, conn_pars, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, early_stop = 0.6):
+def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, grid_pars, conn_pars, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, early_stop = 0.6, results_dir = None):
           
     #Initialize loss
     val_loss_per_epoch = []
@@ -416,7 +421,8 @@ def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, g
     optimizer = optax.adam(eta)
     opt_state = optimizer.init(opt_pars)
     
-    print(opt_pars)
+    #print(opt_pars)
+    print(stimuli_pars)
     
     print('Training model with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(eta, sig_noise, offset, loss_pars.lambda_w, batch_size, noise_type))
     
@@ -476,10 +482,13 @@ def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, g
             
             #Evaluate model 
             test_data = create_data(stimuli_pars, number = test_size, offset = offset, ref_ori = ref_ori)
+            print(test_data['ref'][0].reshape(129,129)[50,50] != train_data['ref'][0].reshape(129,129)[50,50])
+            
+            
             start_time = time.time()
-            val_loss, [val_all_losses, true_acc, val_sig_input, val_x ]= loss(opt_pars, ssn_ori_map, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type, vmap_model, model_type)
+            val_loss, [val_all_losses, true_acc, val_sig_input, val_x ]= loss(opt_pars, ssn_ori_map, ssn_pars, grid_pars, conn_pars, gE, gI, train_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type, vmap_model, model_type)
             val_time = time.time() - start_time
-            print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {})'.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
+            print('Training loss: {} ¦ Validation -- loss (loss func): {}, true accuracy: {}, at epoch {}, (time {}, {})'.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
             val_loss_per_epoch.append(val_loss)
             val_sig_inputs.append(val_sig_input)
             val_sig_outputs.append(val_x)
@@ -489,9 +498,9 @@ def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, g
                 print('Early stop: {} accuracy achieved at epoch {}'.format(early_stop, epoch, epoch_c))
                 flag=False
 
-        if epoch < epoch_c:        
-            updates, opt_state = optimizer.update(grad, opt_state)
-            opt_pars = optax.apply_updates(opt_pars, updates)
+        #if epoch < epoch_c:        
+            #updates, opt_state = optimizer.update(grad, opt_state)
+            #opt_pars = optax.apply_updates(opt_pars, updates)
         
         if epoch>=epoch_c+20:
             print('Breaking at epoch {}'.format(epoch))
@@ -499,6 +508,7 @@ def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, g
     
         #Save new optimized parameters
         if epoch in epochs_to_save:
+            #APPEND COMPONENTS of W to list
             if results_filename:
                 save_params = save_params_dict(opt_pars=opt_pars, true_acc=true_acc, epoch=epoch)
                 results_writer.writerow(save_params)
@@ -512,12 +522,39 @@ def train_SSN_vmap(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, g
     if 'sigma_oris' in opt_pars.keys():
         opt_pars['sigma_oris'] = np.exp(opt_pars['sigma_oris'])
          
+    
+    if model_type ==4:
+        save_w_sigs = np.asarray(np.vstack(save_w_sigs))
+        plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir, 'w_sig_evolution') )
+        w_sig = opt_pars['w_sig']
+        b_sig = opt_pars['b_sig']
+
+    if model_type==5:
+        J_2x2 = opt_pars['logJ_2x2']
+        s_2x2 = opt_pars['logs_2x2']
+        c_E = opt_pars['c_E']
+        c_I = opt_pars['c_I']
+        sigma_oris = np.exp(sigma_oris)
+
+        
+    if model_type ==1:
+
+        J_2x2 = opt_pars['logJ_2x2']
+        s_2x2 = opt_pars['logs_2x2']
+        c_E = opt_pars['c_E']
+        c_I = opt_pars['c_I']
+        w_sig = opt_pars['w_sig']
+        b_sig = opt_pars['b_sig']
+        sigma_oris = np.exp(sigma_oris)
+
+
+    test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir, 'train_hist') , vmap_model = vmap_model)
         
    
     return opt_pars, val_loss_per_epoch, all_losses, train_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c #, gradients, losses_only
 
 
-def train_SSN_vmap_both_lossandgrad(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, grid_pars, conn_pars, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, early_stop = 0.6):
+def train_SSN_vmap_both_lossandgrad(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b_sig, ssn_pars, grid_pars, conn_pars, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', model_type=1, readout_pars=None, early_stop = 0.6, results_dir = None):
           
     #Initialize loss
     val_loss_per_epoch = []
@@ -527,6 +564,8 @@ def train_SSN_vmap_both_lossandgrad(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b
     train_sig_outputs = []
     val_sig_inputs = []
     val_sig_outputs = []
+    save_w_sigs = []
+    save_w_sigs.append(w_sig[:5])
     
     test_size = batch_size if test_size is None else test_size
     
@@ -643,17 +682,23 @@ def train_SSN_vmap_both_lossandgrad(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b
         if epoch < epoch_c:        
             updates, opt_state = optimizer.update(grad, opt_state)
             opt_pars = optax.apply_updates(opt_pars, updates)
-        
+            save_w_sigs.append(opt_pars['w_sig'][:5])
+
         if epoch in epochs_to_save:
             if results_filename:
                 save_params = save_params_dict(opt_pars=opt_pars, true_acc=true_acc, epoch=epoch)
                 results_writer.writerow(save_params)
         
+        if epoch == epoch_c+20 and model_type ==4:
+            test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, opt_pars['w_sig'], opt_pars['b_sig'], sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir, 'in loop_epoch_c') , vmap_model = vmap_model)
+        
         if epoch>=epoch_c+20:
             print('Breaking at epoch {}'.format(epoch))
             break
-    
         
+        
+            
+            
     
     #Reparametize parameters
     signs=np.array([[1, -1], [1, -1]])
@@ -663,5 +708,100 @@ def train_SSN_vmap_both_lossandgrad(J_2x2, s_2x2, sigma_oris, c_E, c_I, w_sig, b
         opt_pars['logs_2x2'] = np.exp(opt_pars['logs_2x2'])
     if 'sigma_oris' in opt_pars.keys():
         opt_pars['sigma_oris'] = np.exp(opt_pars['sigma_oris'])
+    
+    
+    
+    
+    if model_type ==4:
+        save_w_sigs = np.asarray(np.vstack(save_w_sigs))
+        plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir, 'w_sig_evolution') )
+        w_sig = opt_pars['w_sig']
+        b_sig = opt_pars['b_sig']
+    
+    if model_type==5:
+        J_2x2 = opt_pars['logJ_2x2']
+        s_2x2 = opt_pars['logs_2x2']
+        c_E = opt_pars['c_E']
+        c_I = opt_pars['c_I']
+        sigma_oris = np.exp(sigma_oris)
+
+        
+    if model_type ==1:
+
+        J_2x2 = opt_pars['logJ_2x2']
+        s_2x2 = opt_pars['logs_2x2']
+        c_E = opt_pars['c_E']
+        c_I = opt_pars['c_I']
+        w_sig = opt_pars['w_sig']
+        b_sig = opt_pars['b_sig']
+        sigma_oris = np.exp(sigma_oris)
+
+
+    test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save =os.path.join(results_dir, 'train_hist') , vmap_model = vmap_model)
    
-    return opt_pars, val_loss_per_epoch, all_losses, train_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c #, gradients, losses_only
+    return opt_pars, val_loss_per_epoch, all_losses, train_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs #, gradients, losses_only
+
+
+
+
+
+
+
+
+
+
+def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 20, batch_size = 500, vmap_model = None):
+    '''
+    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
+    Input: 
+        network parameters, number of trials and batch size of each trial
+    Output:
+        histogram of the accuracies 
+    
+    '''
+    if vmap_model ==None:
+        vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
+    
+    all_accs = []
+    
+    ssn=SSN2DTopoV1_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, gE=gE, gI=gI, sigma_oris=sigma_oris)
+    ssn_ori_map = ssn.ori_map
+
+    print('w_sig ', w_sig[:5])
+    print('J_2x2 ', J_2x2)
+    
+    logJ_2x2 =take_log(J_2x2)
+    logs_2x2 = np.log(s_2x2)
+    sigma_oris = np.log(sigma_oris)
+    
+    for i in range(number_trials):
+        
+        testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
+        
+        _, _, pred_label, _, _ =vmap_model(ssn_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
+                         
+        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
+        all_accs.append(true_accuracy)
+   
+    plt.hist(all_accs)
+    plt.xlabel('Accuracy')
+    plt.ylabel('Frequency')
+   
+    
+    if save:
+            plt.savefig(save+'.png')
+    
+    plt.show()  
+    plt.close() 
+
+def plot_w_sig(w_sig,  epochs_to_save , epoch_c = None,save=None):
+    
+    plt.plot(w_sig)
+    plt.xlabel('Epoch')
+    plt.ylabel('Values of w')
+    if epoch_c:
+        plt.axvline(x=epoch_c, c='r', label='criterion')
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close()
