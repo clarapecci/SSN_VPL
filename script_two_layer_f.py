@@ -29,7 +29,7 @@ from SSN_classes_jax_on_only import SSN2DTopoV1
 import util
 from util import take_log, init_set_func
 
-from analysis import findRmax, plot_losses, plot_results_two_layers, param_ratios_two_layer, plot_sigmoid_outputs, plot_training_accs
+from analysis import findRmax, plot_losses, plot_losses_two_stage,  plot_results_two_layers, param_ratios_two_layer, plot_sigmoid_outputs, plot_training_accs
 import two_layer_training
 jax.config.update("jax_enable_x64", True)
 
@@ -95,14 +95,14 @@ class filter_pars():
 class conv_pars:
     dt = 1
     xtol = 1e-05
-    Tmax = 10000
+    Tmax = 2000
     verbose = False
     silent = True
     Rmax_E = None
     Rmax_I= None
 
 class loss_pars:
-    lambda_1 = 1
+    lambda_1 = 5
     lambda_2 = 1
     lambda_w = 1.5
     lambda_b = 1
@@ -168,36 +168,32 @@ if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
 
 #Specify results filename
-run_dir = os.path.join(results_dir, 'set_'+str(init_set)+'_sig_noise_'+str(sig_noise)+'_model_type_'+str(model_type))
+run_dir = os.path.join(results_dir, 'set_'+str(init_set)+'_sig_noise_'+str(sig_noise)+'_Tmax'+str(conv_pars.Tmax)+'_model_type_'+str(model_type))
 
 #results_filename = None
 results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
 
-new_opt_pars, val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, model_type=model_type, results_dir = run_dir)
+new_opt_pars, val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, stimuli_pars, filter_pars, conv_pars, loss_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir)
 
-if model_type !=4:
-    epoch_c = None
 
 #Plot losses
 losses_dir = os.path.join(run_dir+'_losses')
-plot_losses(training_losses, val_loss_per_epoch, epochs_to_save[:len(val_loss_per_epoch)], epoch_c = epoch_c, save = losses_dir)
+plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = epoch_c, save = losses_dir)
 
 #Plot results
 results_plot_dir =  os.path.join(run_dir+'_results')
-plot_results_two_layers(results_filename, bernoulli = False, epoch_c = epoch_c, save= results_plot_dir)
+#plot_results_two_layers(results_filename, bernoulli = False, epoch_c = epoch_c, save= results_plot_dir)
 
 #Plot sigmoid
 sig_dir = os.path.join(run_dir+'_sigmoid')
-plot_sigmoid_outputs(train_sig_inputs, val_sig_inputs, train_sig_outputs, val_sig_outputs, epochs_to_save[:len(val_sig_outputs)], epoch_c = epoch_c, save=sig_dir)
+#plot_sigmoid_outputs(train_sig_inputs, val_sig_inputs, train_sig_outputs, val_sig_outputs, epochs_to_save[:len(val_sig_outputs)], epoch_c = epoch_c, save=sig_dir)
 
     
 #Plot training_accs
 training_accs_dir = os.path.join(run_dir+'_training_accs')
-plot_training_accs(training_accs, epoch_c = epoch_c, save = training_accs_dir)
-
-histogram_dir =os.path.join(run_dir+'_histogram')
+#plot_training_accs(training_accs, epoch_c = epoch_c, save = training_accs_dir)
 
 
 if model_type ==4:
@@ -210,6 +206,7 @@ if model_type ==5:
     s_2x2 = new_opt_pars['logs_2x2']
     c_E = new_opt_pars['c_E']
     c_I = new_opt_pars['c_I']
+    f= new_opt_pars['f']
     
 if model_type ==1:
     
@@ -221,5 +218,5 @@ if model_type ==1:
     b_sig = new_opt_pars['b_sig']
     f= new_opt_pars['f']
     
-    
-two_layer_training.test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type,  save = histogram_dir, number_trials = 20, batch_size = 500)
+histogram_dir =os.path.join(run_dir+'_histogram')    
+#two_layer_training.test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type,  save = histogram_dir, number_trials = 20, batch_size = 500)
