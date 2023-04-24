@@ -14,10 +14,9 @@ from torch.utils.data import DataLoader
 from numpy.random import binomial
 
 
-
 #####  ORIGINAL UTIL ####
 
-def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, silent=False):
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, inds=None, verbose=True, silent=False):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
     Euler update with sufficiently large dt (to gain in computational time).
@@ -40,12 +39,17 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
     """
-
+    print(PLOT)
     if PLOT:
         if inds is None:
             N = x_initial.shape[0] # x_initial.size
+            
             inds = [int(N/4), int(3*N/4)]
-        xplot = x_initial[inds][:,None]
+            
+            print(inds)
+        #xplot = x_initial[inds][:,None]
+        xplot = x_initial[np.array(inds)][:,None]
+        xplot_all = np.sum(x_initial)
     Nmax = np.round(Tmax/dt).astype(int)
     Nmin = np.round(Tmin/dt) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
@@ -57,7 +61,8 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         
         if PLOT:
             #xplot = np.asarray([xplot, xvvec[inds]])
-            xplot = np.hstack((xplot,xvec[inds][:,None]))
+            xplot = np.hstack((xplot, xvec[np.asarray(inds)][:,None]))
+            xplot_all=np.hstack((xplot_all, np.sum(xvec)))
         
         
         if n > Nmin:
@@ -74,11 +79,179 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         #beep
 
     if PLOT:
+        print('plotting')
+
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(15,5))
+        
+        axes[0].plot(np.arange(n+2)*dt, xplot.T, 'o-', label=inds)
+        axes[0].set_xlabel('Steps')
+        axes[0].legend()
+        
+        
+        axes[1].plot(np.arange(n+2)*dt, xplot_all)
+        axes[1].set_ylabel('Sum of response')
+        axes[1].set_xlabel('Steps')
+        if CONVG:
+            axes[1].set_title('Converged to sum of '+str(np.sum(xvec)))
+            fig.savefig('Middle_layer_response_plots.png')
+        
+        
+        fig.show()
+        
+                                
+                                
+
+    return xvec, CONVG, n, xplot
+'''
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=False, silent=False, Tfrac_CV=0):
+    """
+    Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
+    Euler update with sufficiently large dt (to gain in computational time).
+    Checks for convergence to stop the updates early.
+
+    IN:
+    dxdt = a function handle giving the right hand side function of dynamical system
+    x_initial = initial condition for state variables (a column vector)
+    Tmax = maximum time to which it would run the Euler (same units as dt, e.g. ms)
+    dt = time step of Euler
+    xtol = tolerance in relative change in x for determining convergence
+    xmin = for x(i)<xmin, it checks convergenece based on absolute change, which must be smaller than xtol*xmin
+        Note that one can effectively make the convergence-check purely based on absolute,
+        as opposed to relative, change in x, by setting xmin to some very large
+        value and inputting a value for 'xtol' equal to xtol_desired/xmin.
+    PLOT: if True, plot the convergence of some component
+    inds: indices of x (state-vector) to plot
+    verbose: if True print convergence criteria even if passed (function always prints out a warning if it doesn't converge).
+    Tfrac_var: if not zero, maximal temporal CV (coeff. of variation) of state vector components, over the final
+               Tfrac_CV fraction of Euler timesteps, is calculated and printed out.
+               
+    OUT:
+    xvec = found fixed point solution
+    CONVG = True if determined converged, False if not
+    """
+
+    if PLOT:
+        if inds is None:
+            x_dim = x_initial.size
+            inds = [int(x_dim/4), int(3*x_dim/4)]
+        xplot = x_initial.flatten()[inds][:,None]
+
+    Nmax = int(np.round(Tmax/dt))
+    Nmin = int(np.round(Tmin/dt)) if Tmax > Tmin else int(Nmax/2)
+    xvec = x_initial
+    CONVG = False
+
+    if Tfrac_CV > 0:
+        xmean = np.zeros_like(xvec)
+        xsqmean = np.zeros_like(xvec)
+        Nsamp = 0
+
+    for n in range(Nmax):
+        dx = dxdt(xvec) * dt
+        xvec = xvec + dx
+        if PLOT:
+            xplot = np.hstack((xplot, xvec.flatten()[inds][:,None]))
+        
+        if Tfrac_CV > 0 and n >= (1-Tfrac_CV) * Nmax:
+            xmean = xmean + xvec
+            xsqmean = xsqmean + xvec**2
+            Nsamp = Nsamp + 1
+
+        if n > Nmin:
+            if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol:
+                if verbose:
+                    print("      converged to fixed point at iter={},      as max(abs(dx./max(xvec,{}))) < {} ".format(n, xmin, xtol))
+                CONVG = True
+                break
+
+    if not CONVG and not silent: # n == Nmax:
+        print("\n Warning 1: reached Tmax={}, before convergence to fixed point.".format(Tmax))
+        print("       max(abs(dx./max(abs(xvec), {}))) = {},   xtol={}.\n".format(xmin, np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max(), xtol))
+
+        if Tfrac_CV > 0:
+            xmean = xmean/Nsamp
+            xvec_SD = np.sqrt(xsqmean/Nsamp - xmean**2)
+            # CV = xvec_SD / xmean
+            # CVmax = CV.max()
+            CVmax = xvec_SD.max() / xmean.max()
+            print(f"max(SD)/max(mean) of state vector in the final {Tfrac_CV:.2} fraction of Euler steps was {CVmax:.5}")
+
+        #mybeep(.2,350)
+        #beep
+
+    if PLOT:
         import matplotlib.pyplot as plt
         plt.figure(244459)
         plt.plot(np.arange(n+2)*dt, xplot.T, 'o-')
 
     return xvec, CONVG
+'''
+
+
+# this is copied from scipy.linalg, to make compatible with jax.numpy
+def toeplitz(c, r=None):
+    """
+    Construct a Toeplitz matrix.
+    The Toeplitz matrix has constant diagonals, with c as its first column
+    and r as its first row.  If r is not given, ``r == conjugate(c)`` is
+    assumed.
+    Parameters
+    ----------
+    c : array_like
+        First column of the matrix.  Whatever the actual shape of `c`, it
+        will be converted to a 1-D array.
+    r : array_like
+        First row of the matrix. If None, ``r = conjugate(c)`` is assumed;
+        in this case, if c[0] is real, the result is a Hermitian matrix.
+        r[0] is ignored; the first row of the returned matrix is
+        ``[c[0], r[1:]]``.  Whatever the actual shape of `r`, it will be
+        converted to a 1-D array.
+    Returns
+    -------
+    A : (len(c), len(r)) ndarray
+        The Toeplitz matrix. Dtype is the same as ``(c[0] + r[0]).dtype``.
+    See also
+    --------
+    circulant : circulant matrix
+    hankel : Hankel matrix
+    Notes
+    -----
+    The behavior when `c` or `r` is a scalar, or when `c` is complex and
+    `r` is None, was changed in version 0.8.0.  The behavior in previous
+    versions was undocumented and is no longer supported.
+    Examples
+    --------
+    >>> from scipy.linalg import toeplitz
+    >>> toeplitz([1,2,3], [1,4,5,6])
+    array([[1, 4, 5, 6],
+           [2, 1, 4, 5],
+           [3, 2, 1, 4]])
+    >>> toeplitz([1.0, 2+3j, 4-1j])
+    array([[ 1.+0.j,  2.-3.j,  4.+1.j],
+           [ 2.+3.j,  1.+0.j,  2.-3.j],
+           [ 4.-1.j,  2.+3.j,  1.+0.j]])
+    """
+    c = np.asarray(c).ravel()
+    if r is None:
+        r = c.conjugate()
+    else:
+        r = np.asarray(r).ravel()
+    # Form a 1D array of values to be used in the matrix, containing a reversed
+    # copy of r[1:], followed by c.
+    vals = np.concatenate((r[-1:0:-1], c))
+    a, b = np.ogrid[0:len(c), len(r) - 1:-1:-1]
+    indx = a + b
+    # `indx` is a 2D array of indices into the 1D array `vals`, arranged so
+    # that `vals[indx]` is the Toeplitz matrix.
+    return vals[indx]
+
+
+
+
+
+
+
+
 
 ### END OF ORIGINAL UTIL ###
 
@@ -136,7 +309,7 @@ def take_log(J_2x2):
     return logJ_2x2
 
 
-def init_set_func(init_set, conn_pars, ssn_pars):
+def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
     
     
     #ORIGINAL TRAINING!!
@@ -167,6 +340,9 @@ def init_set_func(init_set, conn_pars, ssn_pars):
         sigEE, sigIE = 0.225, 0.242
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.0, 0.0]
+        
+    if middle:
+        conn_pars.p_local = [1, 1]
     
     make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]]) * np.pi * ssn_pars.psi
     J_2x2 = make_J2x2(*Js0)
@@ -328,6 +504,7 @@ class JiaGrating:
         self.spatial_freq = spatial_frequency or (1 / self.pixel_per_degree)
         self.grating_size = round(self.outer_radius * self.pixel_per_degree)
         self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * numpy.pi
+      
 
     def image(self):
         x, y = numpy.mgrid[-self.grating_size:self.grating_size+1., -self.grating_size:self.grating_size+1.]
@@ -355,7 +532,7 @@ class JiaGrating:
         
         #noise_mask = binomial(1, 1-self.snr, size=(d, d)).astype(int)
         
-       #masked_noise = noise * noise_mask
+        #masked_noise = noise * noise_mask
 
         #signal_mask = 1 - noise_mask
         #masked_gabor_sti = signal_mask * gabor_sti
@@ -420,6 +597,8 @@ def make_gratings(ref_ori, target_ori, jitter_val=5, **stimuli_pars, ):
     '''
     #generate jitter for reference and target
     jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
+
+    
     
     #create reference grating
     ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
@@ -680,3 +859,49 @@ def ratio_w(new_pars, opt_pars ):
         all_ratios.append((new_pars['w_sig'][i] / opt_pars['w_sig'][i] - 1 )*100)
         
     return np.asarray(all_ratios)
+
+
+
+
+def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 20, batch_size = 500, vmap_model = None):
+    '''
+    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
+    Input: 
+        network parameters, number of trials and batch size of each trial
+    Output:
+        histogram of the accuracies 
+    
+    '''
+    if vmap_model ==None:
+        vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
+    
+    all_accs = []
+    
+    ssn=SSN2DTopoV1_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, gE=gE, gI=gI, sigma_oris=sigma_oris)
+    ssn_ori_map = ssn.ori_map
+    print(ssn_ori_map)
+    print(w_sig[:5])
+    
+    logJ_2x2 =take_log(J_2x2)
+    logs_2x2 = np.log(s_2x2)
+    sigma_oris = np.log(sigma_oris)
+    
+    for i in range(number_trials):
+        
+        testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
+        
+        _, _, pred_label, _, _ =vmap_model(ssn_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
+                         
+        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
+        all_accs.append(true_accuracy)
+   
+    plt.hist(all_accs)
+    plt.xlabel('Accuracy')
+    plt.ylabel('Frequency')
+   
+    
+    if save:
+            plt.savefig(save+'.png')
+    
+    plt.show()  
+    plt.close() 
