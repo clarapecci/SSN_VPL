@@ -107,20 +107,20 @@ class loss_pars:
     lambda_w = 1.5
     lambda_b = 1
     
-    
-init_set =2
+
+#Specify initialisation
+init_set =1
 J_2x2_s, s_2x2_s, gE, gI, conn_pars_s  = init_set_func(init_set, conn_pars_s, ssn_pars)
 J_2x2_m, _, gE_m, gI_m, conn_pars_m  = init_set_func(init_set, conn_pars_m, ssn_pars, middle = True)
 
-sigma_oris = (np.asarray([1000.0, 1000.0]))
+sigma_oris = np.asarray([1000.0, 1000.0])
 
 #Excitatory and inhibitory constants for extra synaptic GABA
 c_E = 5.0
 c_I = 5.0
 
 #Feedforwards connections
-f=1.0
-
+f= np.asarray([1.0, 1.0])
 #Sigmoid parameters
 N_neurons = 25
 
