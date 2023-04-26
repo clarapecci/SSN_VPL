@@ -95,7 +95,7 @@ class filter_pars():
 class conv_pars:
     dt = 1
     xtol = 1e-05
-    Tmax = 1000
+    Tmax = 800
     verbose = False
     silent = True
     Rmax_E = None
@@ -108,7 +108,7 @@ class loss_pars:
     lambda_b = 1
     
     
-init_set =1
+init_set =2
 J_2x2_s, s_2x2_s, gE, gI, conn_pars_s  = init_set_func(init_set, conn_pars_s, ssn_pars)
 J_2x2_m, _, gE_m, gI_m, conn_pars_m  = init_set_func(init_set, conn_pars_m, ssn_pars, middle = True)
 
@@ -162,21 +162,21 @@ constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '24-04', 'testing')
+results_dir = os.path.join(home_dir, 'results', '24-04')
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
 
 #Specify results filename
-run_dir = os.path.join(results_dir, 'set_'+str(init_set)+'_sig_noise_'+str(sig_noise)+'_Tmax'+str(conv_pars.Tmax))
+run_dir = os.path.join(results_dir, 'set_'+str(init_set)+'_sig_noise_'+str(sig_noise)+'_Tmax'+str(conv_pars.Tmax)+'_dx'+str(loss_pars.lambda_dx))
 
 #results_filename = None
 results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
 
-new_pars, val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir)
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir)
 
-print('new_pars ', new_pars )
+print('new_pars ', ssn_layer_pars, readout_pars )
 #Save training and validation losses
 np.save(os.path.join(run_dir+'_training_losses.npy'), training_losses)
 np.save(os.path.join(run_dir+'_validation_losses.npy'), val_loss_per_epoch)
@@ -201,4 +201,4 @@ plot_training_accs(training_accs, epoch_c = epoch_c, save = training_accs_dir)
 
     
 histogram_dir =os.path.join(run_dir+'_histogram')    
-#two_layer_training.test_accuracy(stimuli_pars, offset, ref_ori, J_2x2_m, J_2x2_s, s_2x2_s, c_E, c_I, f, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type,  save = histogram_dir, number_trials = 20, batch_size = 500)
+two_layer_training.test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, save=histogram_dir, number_trials = 20, batch_size = 500)
