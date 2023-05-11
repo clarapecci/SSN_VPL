@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import jax
 from jax import jit
 from functools import partial
+from pdb import set_trace
+import numpy
+
 
 from util import  find_A, GaborFilter
 import util
@@ -516,26 +519,29 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         Y = self.y_map if Y is None else Y
 
         z = np.zeros_like(X)
-        key = random.PRNGKey(87)
+        #key = random.PRNGKey(87)
+        #numpy.random.seed(6)
         for j in range(nn):
             kj = np.array([np.cos(j * np.pi/nn), np.sin(j * np.pi/nn)]) * 2*np.pi/(hyper_col)
             
             ## JAX CHANGES ##
-            key, subkey = random.split(key)
-            sj = 2 *random.randint(key=key, shape=[1,1], minval=0, maxval=2)-1 #random number that's either + or -1.
-            key, subkey = random.split(key)
-            phij = random.uniform(key, shape=[1,1], minval=0, maxval=1)*2*np.pi
+            #key, subkey = random.split(key)
+            #sj = 2 *random.randint(key=key, shape=[1,1], minval=0, maxval=2)-1 #random number that's either + or -1.
+            #key, subkey = random.split(key)
+            #phij = random.uniform(key, shape=[1,1], minval=0, maxval=1)*2*np.pi
             
-            #sj = 2 * numpy.random.randint(0, 2)-1 #random number that's either + or -1.
-            #phij = numpy.random.rand()*2*np.pi
+            #NUMPY RANDOM
+            sj = 2 * numpy.random.randint(0, 2)-1 #random number that's either + or -1.
+            phij = numpy.random.rand()*2*np.pi
 
             tmp = (X*kj[0] + Y*kj[1]) * sj + phij
             z = z + np.exp(1j * tmp)
 
+
         # ori map with preferred orientations in the range (0, _Lring] (i.e. (0, 180] by default)
         self.ori_map = (np.angle(z) + np.pi) * SSN2DTopoV1_ONOFF._Lring/(2*np.pi)
         self.ori_vec = np.tile(self.ori_map.ravel(), (4,))
-        
+
         return self.ori_map
 
     def _make_distances(self):
@@ -581,6 +587,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         PERIODIC = self.conn_pars.PERIODIC
         p_local = self.conn_pars.p_local
       
+        
 
         if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
             xy_dist = self.xy_dist
@@ -897,7 +904,7 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         else:
             self.input_ori_map(ori_map)
             
-            
+       
         self.gE, self.gI = gE, gI
        
         
@@ -909,12 +916,13 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         
         self.A=ssn_pars.A
         
+
                 
         
         self.gabor_filters, self.A = self.create_gabor_filters()
         
-       
-        self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
+        self.make_local_W(J_2x2)
+        #self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
             
     def drdt(self, r, inp_vec):
         r1 = np.reshape(r, (-1, self.Nc))

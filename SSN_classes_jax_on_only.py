@@ -607,6 +607,7 @@ class SSN2DTopoV1(_SSN_Base):
 
         z = np.zeros_like(X)
         #key = random.PRNGKey(87) #JAX CHANGES
+        #numpy.random.seed(10)
         for j in range(nn):
             kj = np.array([np.cos(j * np.pi/nn), np.sin(j * np.pi/nn)]) * 2*np.pi/(hyper_col)
             
