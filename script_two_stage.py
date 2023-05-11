@@ -33,6 +33,7 @@ from analysis import findRmax, plot_losses, plot_losses_two_stage,  plot_results
 import two_layer_training
 jax.config.update("jax_enable_x64", True)
 
+from pdb import set_trace
 
 
 ############################# NETWORK PARAMETERS #########################
@@ -54,7 +55,7 @@ stimuli_pars.update(general_pars)
 class ssn_pars():
     n = 2
     k = 0.04
-    tauE = 30 # in ms
+    tauE = 60 # in ms
     tauI = 10 # in ms~
     psi = 0.774
     A=None
@@ -95,7 +96,7 @@ class filter_pars():
 class conv_pars:
     dt = 1
     xtol = 1e-05
-    Tmax = 800
+    Tmax = 400
     verbose = False
     silent = True
     Rmax_E = None
@@ -120,11 +121,12 @@ c_E = 5.0
 c_I = 5.0
 
 #Feedforwards connections
-f= np.asarray([1.0, 1.0])
+f_E = 1.0
+f_I = 1.0
 #Sigmoid parameters
 N_neurons = 25
 
-
+#Readout later
 w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.32006381e-02,
   2.59337798e-02, -4.07500396e-04,  2.88240220e-02,  1.46174524e-03,
  -1.32988971e-02, -3.61239421e-03,  6.57914279e-05, -1.17886653e-02,
@@ -133,24 +135,27 @@ w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.320063
  -8.73062983e-02, -1.87561601e-01,  1.21363625e-01,  2.78673577e-03,
   1.95321068e-03])
 
-
-
 b_sig =0.0
 
 ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE, gI=gI)
 ssn_pars.A = ssn_mid.A
 
-    
+#Load orientation map
+ssn_ori_map = np.load(os.path.join(os.getcwd(), 'ssn_map.npy'))
+print('map loading')
+print(ssn_ori_map)
+
 #######################TRAINING PARAMETERS #############################
 
-epochs = 1000
-num_epochs_to_save = 101
+epochs = 2
+num_epochs_to_save =2
 
 epochs_to_save =  np.insert((np.unique(np.linspace(1 , epochs, num_epochs_to_save).astype(int))), 0 , 0)
+
 noise_type = 'poisson'
 
-eta=10e-4
-sig_noise = 1
+eta=10e-5
+sig_noise = 1.0
 batch_size = 50
 
 constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m = conn_pars_m, conn_pars_s =conn_pars_s , gE =gE, gI = gI, filter_pars = filter_pars, conv_pars = conv_pars, loss_pars = loss_pars, sig_noise = sig_noise, noise_type = noise_type)
@@ -162,7 +167,7 @@ constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '24-04')
+results_dir = os.path.join(home_dir, 'results', '09-05', 'single_stage')
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
 
@@ -174,25 +179,29 @@ results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir)
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f_E, f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 50, ssn_ori_map = ssn_ori_map)
+
+
 
 print('new_pars ', ssn_layer_pars, readout_pars )
+
 #Save training and validation losses
 np.save(os.path.join(run_dir+'_training_losses.npy'), training_losses)
 np.save(os.path.join(run_dir+'_validation_losses.npy'), val_loss_per_epoch)
 
 
+
 #Plot losses
 losses_dir = os.path.join(run_dir+'_losses')
-plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = epoch_c, save = losses_dir)
+plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = epoch_c, save = losses_dir, inset=True)
 
 #Plot results
 results_plot_dir =  os.path.join(run_dir+'_results')
 plot_results_two_layers(results_filename, bernoulli = False, epoch_c = epoch_c, save= results_plot_dir)
 
 #Plot sigmoid
-sig_dir = os.path.join(run_dir+'_sigmoid')
-#plot_sigmoid_outputs(train_sig_inputs, val_sig_inputs, train_sig_outputs, val_sig_outputs, epochs_to_save[:len(val_sig_outputs)], epoch_c = epoch_c, save=sig_dir)
+#sig_dir = os.path.join(run_dir+'_sigmoid')
+#plot_sigmoid_outputs( train_sig_input= train_sig_inputs, val_sig_input =  val_sig_inputs, train_sig_output = train_sig_outputs, val_sig_output = val_sig_outputs, epoch_c = epoch_c, save=sig_dir)
 
     
 #Plot training_accs
@@ -202,3 +211,9 @@ plot_training_accs(training_accs, epoch_c = epoch_c, save = training_accs_dir)
     
 histogram_dir =os.path.join(run_dir+'_histogram')    
 two_layer_training.test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, save=histogram_dir, number_trials = 20, batch_size = 500)
+
+#b two_layer_training.py:440, debug_flag==True
+#b two_layer_training.py:349, debug_flag==True
+#b two_layer_training.py:403, debug_flag==True
+#util.save_h5(os.path.join(os.getcwd(), 'results', '24-04', 'dict_epoch_c'), readout_pars)
+
