@@ -319,8 +319,21 @@ def separate_param_5(pars, conn_pars_m, conn_pars_s):
     
     return logJ_2x2, logs_2x2, c_E, c_I, f, w_sig, b_sig, sigma_oris
 
-@partial(jax.jit, static_argnums=( 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22), device = jax.devices()[0]) 
+
+
+#@partial(jax.jit, static_argnums=( 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22), device = jax.devices()[0]) 
 def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_sup_ori_map, train_data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, debug_flag=False):
+    
+    '''
+    SSN two-layer model. SSN layers are regenerated every run. Static arguments in jit specify parameters that stay constant throughout training. Static parameters cant be dictionaries
+    Inputs:
+        individual parameters - having taken logs of differentiable parameters
+        noise_type: select different noise models
+        debug_flag: to be used in pdb mode allowing debugging inside function
+    Outputs:
+        losses to take gradient with respect to
+        sig_input, x: I/O values for sigmoid layer
+    '''
 
     
     J_2x2_m = sep_exponentiate(logJ_2x2[0])
@@ -404,12 +417,30 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     return loss, all_losses, pred_label, sig_input, x
 
 
+
+
+
+jitted_model = jax.jit(_new_model, static_argnums = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
 #Vmap implementation of model function
+vmap_model_jit = vmap(jitted_model, in_axes = ([None, None], None, None, None, None, None, None
+                            , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, None) )
+
 vmap_model = vmap(_new_model, in_axes = ([None, None], None, None, None, None, None, None
                             , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, None) )
 
-#Helper function for model
+
+
+
+
 def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
+    
+    '''
+    Wrapper function for model.
+    Inputs: 
+        parameters assembled  into dictionaries
+    Output:
+        output of model using unwrapped parameters
+    '''
     
     #Obtain variables from dictionaries
     logJ_2x2 = ssn_layer_pars['logJ_2x2']
@@ -438,7 +469,7 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     noise_type = constant_ssn_pars['noise_type']
 
     
-    return vmap_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_mid_ori_map, data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, debug_flag)
+    return vmap_model_jit(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_mid_ori_map, data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, debug_flag)
     
 
 
@@ -449,7 +480,7 @@ def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars,
     Input: 
         network parameters, number of trials and batch size of each trial
     Output:
-        histogram of the accuracies 
+        histogram of accuracies 
     
     '''
     
@@ -494,7 +525,18 @@ def plot_w_sig(w_sig,  epochs_to_save , epoch_c = None,save=None):
     
 
 
+    
+    
+    
 def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E, f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, second_eta=None, sig_noise = None, test_size = None, noise_type='additive', results_dir = None, early_stop = 0.7, extra_stop = 20, ssn_ori_map=None):
+    
+    '''
+    Training function for two layer model in two stages: once readout layer is trained until early_stop (first stage), extra epochs are ran without updating, and then SSN layer parameters are trained (second stage). Second stage is nested in first stage. Accuracy is calculated on testing set before training and after first stage. 
+    Inputs:
+        individual parameters of the model
+    Outputs:
+        
+    '''
     
     #Initialize loss
     val_loss_per_epoch = []
@@ -575,6 +617,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
            
         #Load next batch of data and convert
         train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
+        
        
         if epoch ==epoch_c+extra_stop:
             debug_flag = True
@@ -802,6 +845,10 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
 def single_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E, f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = None, batch_size=20, ref_ori = 55, offset = 5, epochs=1, eta=10e-4, sig_noise = None, test_size = None, noise_type='additive', results_dir = None,  ssn_ori_map=None):
     
+    '''
+    Training function for two layer model. Readout layer and SSN parameters are updated simultaneously. 
+    '''
+    
     #Initialize loss
     val_loss_per_epoch = []
     training_losses=[]
@@ -870,8 +917,10 @@ def single_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E
         start_time = time.time()
         epoch_loss = 0 
            
-        #Load next batch of data and convert
+        #Generate new batch of data
         train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
+        #train_data = util.load(os.path.join(os.getcwd(), 'results', 'data', 'train_data'+str(epoch)))
+
         debug_flag = False
         #Compute loss and gradient
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x]], grad =loss_and_grad_single_stage(opt_pars, constant_ssn_pars, train_data , debug_flag)
@@ -893,6 +942,8 @@ def single_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E
 
             #Evaluate model 
             test_data = create_data(stimuli_pars, number = test_size, offset = offset, ref_ori = ref_ori)
+            #test_data = util.load(os.path.join(os.getcwd(), 'results', 'data', 'test_data_'+str(epoch)))
+            
             start_time = time.time()
             [val_loss, [val_all_losses, true_acc, val_delta_x, val_x ]], _= loss_and_grad_single_stage(opt_pars, constant_ssn_pars, test_data)
             val_time = time.time() - start_time
@@ -932,13 +983,29 @@ def single_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E
 
 
 def loss_single_stage(opt_pars,  constant_ssn_pars, data, debug_flag=False):
+    
+    '''
+    Wrapper function for loss: unwraps optimization parameters when doing single stage training
+    '''
     ssn_layer_pars = opt_pars[0]
     readout_pars = opt_pars[1]
     
     return loss(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
 
 
+
+
+
+
 def loss(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
+    
+    '''
+    Function to take gradient with respect to. Output returned as two variables (jax grad takes gradient with respect to first output)
+    Inputs:
+        parameters assembled into dictionaries
+    Ouputs: 
+        total loss to take gradient with respect to
+    '''
     
     total_loss, all_losses, pred_label, sig_input, x= model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = data, debug_flag = debug_flag)
     
@@ -951,7 +1018,19 @@ def loss(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False
 
 
 
+
+
 def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
+    
+    '''
+    Assemble trained parameters and epoch information into single dictionary for saving
+    Inputs:
+        dictionaries containing trained parameters
+        other epoch parameters (accuracy, epoch number)
+    Outputs:
+        single dictionary concatenating all information to be saved
+    '''
+    
     
     save_params = {}
     save_params= dict(epoch = epoch, val_accuracy= true_acc)
