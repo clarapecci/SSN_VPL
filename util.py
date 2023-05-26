@@ -14,9 +14,10 @@ from torch.utils.data import DataLoader
 from numpy.random import binomial
 
 
+
 #####  ORIGINAL UTIL ####
 
-def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, inds=None, verbose=True, silent=False):
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, save= None, inds=None, verbose=True, silent=False):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
     Euler update with sufficiently large dt (to gain in computational time).
@@ -39,17 +40,19 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     xvec = found fixed point solution
     CONVG = True if determined converged, False if not
     """
-    print(PLOT)
-    if PLOT:
+
+    
+    if PLOT==True:
         if inds is None:
             N = x_initial.shape[0] # x_initial.size
-            
             inds = [int(N/4), int(3*N/4)]
             
-            print(inds)
         #xplot = x_initial[inds][:,None]
         xplot = x_initial[np.array(inds)][:,None]
         xplot_all = np.sum(x_initial)
+        xplot_max=[]
+        xplot_max.append(x_initial.max())
+    
     Nmax = np.round(Tmax/dt).astype(int)
     Nmin = np.round(Tmin/dt) if Tmax > Tmin else (Nmax/2)
     xvec = x_initial 
@@ -63,6 +66,8 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
             #xplot = np.asarray([xplot, xvvec[inds]])
             xplot = np.hstack((xplot, xvec[np.asarray(inds)][:,None]))
             xplot_all=np.hstack((xplot_all, np.sum(xvec)))
+            xplot_max.append(xvec.max())
+            
         
         
         if n > Nmin:
@@ -78,30 +83,38 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         #mybeep(.2,350)
         #beep
 
-    if PLOT:
+    if PLOT==True:
         print('plotting')
 
-        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(15,5))
+        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(20,5))
         
         axes[0].plot(np.arange(n+2)*dt, xplot.T, 'o-', label=inds)
         axes[0].set_xlabel('Steps')
+        axes[0].set_ylabel('Neural responses')
         axes[0].legend()
         
         
         axes[1].plot(np.arange(n+2)*dt, xplot_all)
         axes[1].set_ylabel('Sum of response')
         axes[1].set_xlabel('Steps')
-        if CONVG:
-            axes[1].set_title('Converged to sum of '+str(np.sum(xvec)))
-            fig.savefig('Middle_layer_response_plots.png')
+        axes[1].set_title('Final sum: '+str(np.sum(xvec))+', converged '+str(CONVG))
+        
+        axes[2].plot(np.arange(n+2)*dt, np.asarray(xplot_max))
+        axes[2].set_ylabel('Maximum response')
+        axes[2].set_title('final maximum: '+str(xvec.max())+'at index '+str(np.argmax(xvec)))
+        axes[2].set_xlabel('Steps')
+        axes[2].set_ylim([0, 1.2*np.max(np.asarray(xplot_max[-100:]))])
+        
+        if save:
+            fig.savefig(save+'.png')
         
         
         fig.show()
+        plt.close()
         
-                                
-                                
-
-    return xvec, CONVG, n, xplot
+                                                      
+    print(xvec.max(), np.argmax(xvec))
+    return xvec, CONVG
 '''
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=False, silent=False, Tfrac_CV=0):
     """
@@ -313,13 +326,6 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
     
     
     #ORIGINAL TRAINING!!
-    if init_set ==4:
-        Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
-        gE, gI = 1,1
-        sigEE, sigIE = 0.2, 0.40
-        sigEI, sigII = .09, .09
-        conn_pars.p_local = [0.4, 0.7]
-
     if init_set ==0:
         Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
         gE, gI = 0.57328625, 0.26144141
@@ -340,11 +346,35 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         sigEE, sigIE = 0.225, 0.242
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.0, 0.0]
+    
+    if init_set ==3:
+        Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
+        gE, gI = 1,1
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
+        
+    if init_set=='A':
+        Js0 = [2.5, 1.3, 2.4, 1.0]
+        gE, gI =  0.5, 0.5 
+        print(gE, gI)
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
+        
+    if init_set=='C':
+        Js0 = [2.5, 1.3, 4.7, 2.2]
+        gE, gI = 0.4, 0.4
+        sigEE, sigIE = 0.2, 0.40
+        sigEI, sigII = .09, .09
+        conn_pars.p_local = [0.4, 0.7]
         
     if middle:
         conn_pars.p_local = [1, 1]
-    
+        
+
     make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]]) * np.pi * ssn_pars.psi
+        
     J_2x2 = make_J2x2(*Js0)
     s_2x2 = np.array([[sigEE, sigEI],[sigIE, sigII]])
     
@@ -837,11 +867,13 @@ def create_data(stimuli_pars, number=100, offset = 5, ref_ori=55):
     '''
     Create data for given jitter and noise value for testing (not dataloader)
     '''
-    data = create_gratings(ref_ori=ref_ori, number=number, offset=offset, **stimuli_pars)
-    train_data = next(iter(DataLoader(data, batch_size=len(data), shuffle=False)))
+    train_data = create_gratings(ref_ori=ref_ori, number=number, offset=offset, **stimuli_pars)
+    
+    #train_data = next(iter(DataLoader(data, batch_size=len(data), shuffle=False)))
     train_data['ref'] = train_data['ref'].numpy()
     train_data['target'] = train_data['target'].numpy()
     train_data['label'] = train_data['label'].numpy()
+
     
     return train_data
 
@@ -905,3 +937,125 @@ def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, 
     
     plt.show()  
     plt.close() 
+
+    
+#import numpy as np
+import h5py
+
+
+def save_h5(filename, dic):
+
+    """
+
+    saves a python dictionary or list, with items that are themselves either
+
+    dictionaries or lists or (in the case of tree-leaves) numpy arrays
+
+    or basic scalar types (int/float/str/bytes) in a recursive
+
+    manner to an hdf5 file, with an intact hierarchy.
+
+    """
+
+    with h5py.File(filename, 'w') as h5file:
+
+        recursively_save_dict_contents_to_group(h5file, '/', dic)
+        
+
+def recursively_save_dict_contents_to_group(h5file, path, dic):
+
+    """
+
+    ....
+
+    """
+
+    if isinstance(dic,dict):
+
+        iterator = dic.items()
+
+    elif isinstance(dic,list):
+
+        iterator = enumerate(dic)
+
+    else:
+
+        ValueError('Cannot save %s type'%type(item))
+
+
+
+    for key, item in iterator: #dic.items():
+
+        if isinstance(dic,list):
+
+            key = str(key)
+
+        if isinstance(item, numpy.ndarray) or np.isscalar(item):
+
+            h5file[path + key] = item
+
+        elif isinstance(item, dict) or isinstance(item,list):
+
+            recursively_save_dict_contents_to_group(h5file, path + key + '/', item)
+
+        else:
+
+            raise ValueError('Cannot save %s type'%type(item))
+
+
+
+def load(filename,ASLIST=False):
+
+    """
+
+    Default: load a hdf5 file (saved with io_dict_to_hdf5.save function above) as a hierarchical
+
+    python dictionary (as described in the doc_string of io_dict_to_hdf5.save).
+
+    if ASLIST is True: then it loads as a list (on in the first layer) and gives error if key's are not convertible
+
+    to integers. Unlike io_dict_to_hdf5.save, a mixed dictionary/list hierarchical version is not implemented currently
+
+    for .load
+
+    """
+
+    with h5py.File(filename, 'r') as h5file:
+
+        out = recursively_load_dict_contents_from_group(h5file, '/')
+
+        if ASLIST:
+
+            outl = [None for l in range(len(out.keys()))]
+
+            for key, item in out.items():
+
+                outl[int(key)] = item
+
+            out = outl
+
+        return out
+
+
+def recursively_load_dict_contents_from_group(h5file, path):
+
+    """
+
+    ....
+
+    """
+
+    ans = {}
+
+    for key, item in h5file[path].items():
+
+        if isinstance(item, h5py._hl.dataset.Dataset):
+
+            ans[key] = item[()]
+
+        elif isinstance(item, h5py._hl.group.Group):
+
+            ans[key] = recursively_load_dict_contents_from_group(h5file, path + key + '/')
+
+    return ans
+

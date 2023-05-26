@@ -22,7 +22,7 @@ import time
 from torch.utils.data import DataLoader
 import numpy
 from util import create_gratings
-from training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, constant_to_vec, take_log
+from two_layer_training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF
 
 def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False, s_2x2 = None):
@@ -114,8 +114,17 @@ def plot_training_accs(training_accs, epoch_c = None, save=None):
     plt.plot(training_accs)
     plt.xlabel('Epoch')
     plt.ylabel('Training accuracy')
-    if epoch_c:
-        plt.axvline(x=epoch_c, c='r', label='criterion')
+    
+    if epoch_c==None:
+                pass
+    else:
+        if np.isscalar(epoch_c):
+            plt.axvline(x=epoch_c, c = 'r')
+        else:
+            plt.axvline(x=epoch_c[0], c = 'r')
+            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+            plt.axvline(x=epoch_c[2], c='r')
+    
     if save:
             plt.savefig(save+'.png')
     plt.show()
@@ -127,15 +136,22 @@ def plot_w_sig(w_sig, epoch_c = None, save=None):
     plt.plot(w_sig.T)
     plt.xlabel('Epoch')
     plt.ylabel('Values of w')
-    if epoch_c:
-        plt.axvline(x=epoch_c, c='r', label='criterion')
+    if epoch_c==None:
+        pass
+    else:
+        if np.isscalar(epoch_c):
+            plt.axvline(x=epoch_c, c = 'r')
+        else:
+            plt.axvline(x=epoch_c[0], c = 'r')
+            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+        
     if save:
             plt.savefig(save+'.png')
     plt.show()
     plt.close()
     
 
-def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epochs_to_save, epoch_c = None, save=None):
+def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epoch_c = None, save=None):
     
     #Find maximum and minimum of 
     max_train_sig_input = [item.max() for item in train_sig_input]
@@ -143,9 +159,11 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     min_train_sig_input = [item.min() for item in train_sig_input]
 
 
-    max_val_sig_input = [item.max() for item in val_sig_input]
-    mean_val_sig_input = [item.mean() for item in val_sig_input]
-    min_val_sig_input = [item.min() for item in val_sig_input]
+    max_val_sig_input = [item[0].max() for item in val_sig_input]
+    mean_val_sig_input = [item[0].mean() for item in val_sig_input]
+    min_val_sig_input = [item[0].min() for item in val_sig_input]
+    
+    epochs_to_plot = [item[1] for item in val_sig_input]
 
     max_train_sig_output = [item.max() for item in train_sig_output]
     mean_train_sig_output = [item.mean() for item in train_sig_output]
@@ -167,9 +185,9 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[0,0].set_title('Input to sigmoid layer (training) ')
     #axes[0,0].vlines(x=epoch_c)
 
-    axes[0,1].plot(epochs_to_save, max_val_sig_input, label='Max')
-    axes[0,1].plot(epochs_to_save, mean_val_sig_input, label = 'Mean')
-    axes[0,1].plot(epochs_to_save, min_val_sig_input, label = 'Min')
+    axes[0,1].plot(epochs_to_plot, max_val_sig_input, label='Max')
+    axes[0,1].plot(epochs_to_plot, mean_val_sig_input, label = 'Mean')
+    axes[0,1].plot(epochs_to_plot, min_val_sig_input, label = 'Min')
     axes[0,1].set_xlabel('Epoch')
     axes[0,1].legend()
     axes[0,1].set_title('Input to sigmoid layer (validation)')
@@ -183,15 +201,24 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[1,0].set_title('Output of sigmoid layer (training)')
     #axes[1,0].vlines(x=epoch_c)
 
-    axes[1,1].plot(epochs_to_save, max_val_sig_output, label='Max')
-    axes[1,1].plot(epochs_to_save, mean_val_sig_output, label = 'Mean')
-    axes[1,1].plot(epochs_to_save, min_val_sig_output, label = 'Min')
+    axes[1,1].plot(epochs_to_plot, max_val_sig_output, label='Max')
+    axes[1,1].plot(epochs_to_plot, mean_val_sig_output, label = 'Mean')
+    axes[1,1].plot(epochs_to_plot, min_val_sig_output, label = 'Min')
     axes[1,1].set_xlabel('Epoch')
     axes[1,1].legend()
     axes[1,1].set_title('Output to sigmoid layer (validation)')
     #axes[1,1].vlines(x=epoch_c)
 
     fig.subplots_adjust(wspace=0.4, hspace=0.4)
+    
+    if epoch_c==None:
+                pass
+    else:
+        if np.isscalar(epoch_c):
+            plt.axvline(x=epoch_c, c = 'r')
+        else:
+            plt.axvline(x=epoch_c[0], c = 'r')
+            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
     
     if save:
             fig.savefig(save+'.png')
@@ -307,12 +334,20 @@ def param_ratios_two_layer(results_file):
         sigma_oris = sigma_oris.to_numpy()
         print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
         
+    if 'f_E' in results.columns:
+        fs = results[["f_E", "f_I"]]
+        fs = fs.to_numpy()
+        print("f ratios = ", np.array((fs[-1,:]/fs[0,:] -1)*100, dtype=int))
+        
+    
+        
 
-def plot_results_two_layers(results_filename, bernoulli=True, save=None, epoch_c=None, norm_w=False):
+def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_c=None, norm_w=False, param_sum = False):
     
     results = pd.read_csv(results_filename, header = 0)
 
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
+
+    fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(10,10))
 
     if 'J_EE_m' in results.columns:
         results.plot(x='epoch', y=["J_EE_m", "J_EI_m", "J_IE_m", "J_II_m", "J_EE_s", "J_EI_s", "J_IE_s", "J_II_s"], ax=axes[0,0])
@@ -324,24 +359,60 @@ def plot_results_two_layers(results_filename, bernoulli=True, save=None, epoch_c
         results.plot(x='epoch', y=["c_E", "c_I"], ax = axes[1,0])
 
     if 'sigma_orisE' in results.columns:
-        results.plot(x='epoch', y=["sigma_oriE", "sigma_oriI"], ax = axes[0,1])
+        results.plot(x='epoch', y=["sigma_orisE", "sigma_orisI"], ax = axes[0,1])
     
     if 'sigma_oris' in results.columns:
         results.plot(x='epoch', y=["sigma_oris"], ax = axes[0,1])
         
     if 'norm_w' in results.columns and norm_w == True:
         results.plot(x='epoch', y=["norm_w"], ax = axes[0,1])    
+    
+    if 'f_E' in results.columns:
+        results.plot(x='epoch', y=["f_E", "f_I"], ax = axes[1,1])    
+    
 
     if bernoulli == True:
-            results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[1,1])
+            results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[2,0])
     else:
-            results.plot(x='epoch', y = ['val_accuracy'], ax = axes[1,1])
-            if epoch_c:
-                plt.axvline(x=epoch_c, c = 'r')
+            results.plot(x='epoch', y = ['val_accuracy'], ax = axes[2,0])
+            #If passed criterion, plot both lines
+            if epoch_c==None:
+                pass
+            else:
+                if np.isscalar(epoch_c):
+                    axes[2,0].axvline(x=epoch_c, c = 'r')
+                else:
+                    axes[2,0].axvline(x=epoch_c[0], c = 'r')
+                    axes[2,0].axvline(x=epoch_c[0]+epoch_c[1], c='r')
     if save:
             fig.savefig(save+'.png')
     fig.show()
     plt.close()
+    
+    #Create plots of sum of parameters
+    if param_sum ==True:
+        fig_2, axes_2 = plt.subplots(nrows=1, ncols=3, figsize=(14, 3))
+
+        axes_2[0].plot(results['J_IE_s'].to_numpy() + results['J_EE_s'])
+        axes_2[0].set_title('Sum of J_EE_s + J_IE_s')
+        
+        axes_2[1].plot(results['J_IE_m'].to_numpy() + results['J_EE_m'])
+        axes_2[1].set_title('Sum of J_EE_m + J_IE_m')
+        
+        axes_2[2].plot(results['f_E'].to_numpy() + results['f_I'])
+        axes_2[2].set_title('Sum of f_E + f_I')
+        
+        if save:
+            fig_2.savefig(save+'_param_sum.png')
+        
+        
+        
+        
+        fig_2.show()
+        plt.close()
+
+
+        
        
     
 def plot_losses(training_losses, validation_losses, epochs_to_save, epoch_c = None, save=None):
@@ -356,19 +427,64 @@ def plot_losses(training_losses, validation_losses, epochs_to_save, epoch_c = No
     plt.show()
     plt.close()
     
-
+'''
 def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, save=None):
     plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
     plt.plot(val_loss_per_epoch[:,1], val_loss_per_epoch[:,0], label='Validation')
     plt.legend()
     plt.title('Training losses')
-    if epoch_c:
-        plt.axvline(x=epoch_c, c='r')
+    
+    if epoch_c==None:
+                pass
+    else:
+        if np.isscalar(epoch_c):
+            plt.axvline(x=epoch_c, c = 'r')
+        else:
+            plt.axvline(x=epoch_c[0], c = 'r')
+            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
     if save:
         plt.savefig(save+'.png')
     plt.show()
     plt.close()
+'''
+
+def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, save=None, inset = None):
     
+    fig, axs1 = plt.subplots()
+    axs1.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
+    axs1.plot(val_loss_per_epoch[:,1], val_loss_per_epoch[:,0], label='Validation')
+    axs1.legend()
+    axs1.set_title('Training losses')
+    
+    
+    
+    if inset:    
+        left, bottom, width, height = [0.2, 0.22, 0.35, 0.25]
+        ax2 = fig.add_axes([left, bottom, width, height])
+
+        ax2.plot(training_losses[0, :], label = 'Binary loss')
+        ax2.legend()
+
+    if epoch_c==None:
+                pass
+    else:
+        if np.isscalar(epoch_c):
+            axs1.axvline(x=epoch_c, c = 'r')
+            if inset:
+                ax2.axvline(x=epoch_c, c = 'r') 
+        else:
+            axs1.axvline(x=epoch_c[0], c = 'r')
+            axs1.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+            axs1.axvline(x=epoch_c[2], c='r')
+            if inset:
+                ax2.axvline(x=epoch_c[0], c = 'r') 
+                ax2.axvline(x=epoch_c[0]+epoch_c[1], c='r') 
+                axs1.axvline(x=epoch_c[2], c='r')
+
+    fig.show()
+    if save:
+        fig.savefig(save+'.png')
+    plt.close()
 
     
     
@@ -587,46 +703,47 @@ def surround_suppression(ssn, stimuli_pars, conv_pars, radius_list, constant_vec
     return np.vstack(all_responses)
 
 
+from two_layer_training import create_data, model
+from jax import vmap 
 import numpy
-from training import model
 
-def vmap_eval_hist(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type):
 
-    vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
-    losses, all_losses, pred_label, pred_label_b = vmap_model(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type)
+def vmap_eval_hist(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
 
+    losses, all_losses, pred_label, _, _ = model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
     #Find accuracy based on predicted labels
-    true_accuracy = np.sum(test_data['label'] == pred_label)/len(test_data['label']) 
-    ber_accuracy = np.sum(test_data['label'] == pred_label_b)/len(test_data['label']) 
-    
+    true_accuracy = np.sum(data['label'] == pred_label)/len(data['label']) 
+
     vmap_loss= np.mean(losses)
     all_losses = np.mean(all_losses, axis = 0)
     
-    return vmap_loss, all_losses, true_accuracy, ber_accuracy
+    return vmap_loss, true_accuracy
                     
                     
-def vmap_eval3(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type):
+def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
     '''
     Iterates through all values of 'w' to give the losses at each stimuli and weight, and the accuracy at each weight
     Output:
         losses: size(n_weights, n_stimuli )
         accuracy: size( n_weights)
     '''
-    eval_vmap = vmap(vmap_eval_hist, in_axes = (None, None, None, None, 0, None, None, None, None, None, None, None, {'ref':None, 'target':None, 'label':None}, None, None, None, None, None) )
-    losses, _,  true_acc, ber_acc = eval_vmap(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, test_data, filter_pars,  conv_pars, loss_pars, sig_noise, noise_type)
+    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'sigma_oris': None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None, 'sig_noise': None, 'ssn_pars': None}, {'label': None, 'ref': None, 'target': None}, None))
+    losses, true_acc = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
 
-    return losses, true_acc, ber_acc
+    return losses, true_acc
                     
-def test_accuracies(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, loss_pars, offset, sig_noise, noise_type, trials = 5, p = 0.9, printing=True):
     
-    key = random.PRNGKey(7)
+    
+def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, trials = 5, p = 0.9, printing=True):
+    
+    
     N_neurons = 25
     accuracies = []
-    key, _ = random.split(key)
-    w_sig= random.normal(key, shape = (trials, N_neurons)) / np.sqrt(N_neurons)
-    
+
+    readout_pars['w_sig']= numpy.random.normal(size = (trials, N_neurons)) / np.sqrt(N_neurons)
+
     train_data = create_data(stimuli_pars, offset = offset)
-    val_loss, true_acc, ber_acc = vmap_eval3(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, train_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
+    val_loss, true_acc = vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data)
     
     #calcualate how many accuracies are above 90
     higher_90 = np.sum(true_acc[true_acc>p]) / len(true_acc)
@@ -635,17 +752,18 @@ def test_accuracies(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_
         print('grating contrast = {}, jitter = {}, noise std={}, acc (% >90 ) = {}'.format(stimuli_pars['grating_contrast'], stimuli_pars['jitter_val'], stimuli_pars['std'], higher_90))
     print(true_acc.shape)
     
-    return higher_90, true_acc, w_sig
+    return higher_90, true_acc, readout_pars['w_sig']
 
 
-def initial_acc( logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars,  conv_pars, stimuli_pars,  loss_pars,  offset, noise_type, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3):
+def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None):
     '''
     Find initial accuracy for varying jitter and noise levels. 
     
     '''
 
-    print(noise_type)
-    list_noise  =  np.logspace(start=np.log10(min_sig_noise), stop=np.log10(max_sig_noise), num=len_noise, endpoint=True, base=10.0, dtype=None, axis=0)
+    print(constant_ssn_pars['noise_type'])
+    #list_noise  =  np.logspace(start=np.log10(min_sig_noise), stop=np.log10(max_sig_noise), num=len_noise, endpoint=True, base=10.0, dtype=None, axis=0)
+    list_noise = np.linspace(min_sig_noise, max_sig_noise, len_noise)
     list_jitters = np.linspace(min_jitter, max_jitter, len_jitters)
    
     
@@ -660,7 +778,9 @@ def initial_acc( logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_par
             
             #stimuli_pars['std'] = noise
             stimuli_pars['jitter_val'] = jitter
-            higher_90, acc, w_s = test_accuracies(logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, loss_pars, offset, sig_noise, noise_type, p=p,  trials=100, printing=False)
+            constant_ssn_pars['sig_noise'] = sig_noise
+            
+            higher_90, acc, w_s = test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, p=p,  trials=100, printing=False)
             print(acc.shape)
             #save low accuracies
             if higher_90 < 0.05:
@@ -673,13 +793,13 @@ def initial_acc( logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_par
             
             all_accuracies.append([jitter, sig_noise, acc])
             
-    plot_histograms(all_accuracies)
+    plot_histograms(all_accuracies, save_fig = save_fig)
         
     
     return all_accuracies, low_acc, percent_50, good_w_s
 
 
-def plot_histograms(all_accuracies):
+def plot_histograms(all_accuracies, save_fig = None):
     
     n_rows =  int(np.sqrt(len(all_accuracies)))
     n_cols = int(np.ceil(len(all_accuracies) / n_rows))
@@ -700,12 +820,16 @@ def plot_histograms(all_accuracies):
             if count==len(all_accuracies):
                 break
     
+    if save_fig:
+        fig.savefig(save_fig+'.png')
+        
     fig.show()
+    plt.close()
     
     
 def accuracies(all_acc, p = 0.75):
     '''
-    Print accuracies and jitters that give an accuracy between 0.45-0.55 for initialisation
+    Print accuracies and jitters that give have a probability p of having initial accuracy betwen 0.45-0.55
     '''
     
     acc_to_save = []
@@ -760,3 +884,132 @@ def obtain_regular_indices(ssn, number = 8, test_oris=None):
     print(testing_angles)
     
     return indices
+
+
+def plot_vec2map(ssn, fp, save_fig=False):
+    
+    fp_E_on = ssn.select_type(fp, select='E_ON').ravel()
+    fp_E_off = ssn.select_type(fp, select='E_OFF').ravel()
+    fp_I_on = ssn.select_type(fp, select='I_ON').ravel()
+    fp_I_off = ssn.select_type(fp, select='I_OFF').ravel()
+    
+    titles = ['E_on', 'I_on', 'E_off', 'I_off']
+    all_responses = [fp_E_on,  fp_I_on, fp_E_off,  fp_I_off]
+    
+    fig, axes = plt.subplots(2,2, figsize=(8,8))
+    count = 0
+    for row in range(0,2):
+        for col in range(0,2):
+            ax = axes[row, col]
+            im = ax.imshow(all_responses[count].reshape(9,9), vmin = fp.min(), vmax = fp.max() )
+            ax.set_title(titles[count])
+            ax.set_xlabel('max '+str(all_responses[count].max())+' at index '+str(np.argmax(all_responses[count])))
+            count+=1
+        
+    fig.colorbar(im, ax=axes.ravel().tolist())
+    
+    if save_fig:
+        fig.savefig(save_fig+'.png')
+    
+    plt.close()
+    
+    
+
+
+def ori_tuning_curve_responses(ssn, conv_pars, stimuli_pars, index = None, offset = 4, c_E = 5, c_I = 5):
+    
+    all_responses = []
+    ori_list = np.linspace(0, 180, 18*2+1)
+    
+    #Add preferred orientation 
+    if index:
+        ori_list = np.unique(np.insert(ori_list, 0, ssn.ori_vec[index]).sort())
+    
+    #Obtain response for different orientations
+    for ori in ori_list:
+        stimulus_data = create_data(stimuli_pars, number = 1, offset = offset, ref_ori = ori)
+        constant_vector = constant_to_vec(c_E, c_I, ssn)
+    
+        output_ref=np.matmul(ssn.gabor_filters, stimulus_data['ref'].squeeze()) 
+       
+
+        #Rectify output
+        SSN_input_ref=np.maximum(0, output_ref) +  constant_vector
+        
+        r_init = np.zeros(SSN_input_ref.shape[0])
+        fp, _ = obtain_fixed_point(ssn, SSN_input_ref, conv_pars)
+        
+        if index==None:
+            all_responses.append(fp)
+        else: 
+            all_responses.append(fp[index])
+        
+    return np.vstack(all_responses), ori_list
+
+def obtain_min_max_indices(ssn, fp):
+    idx = (ssn.ori_vec>45)*(ssn.ori_vec<65)
+    indices = np.where(idx)
+    responses_45_65 = fp[indices]
+    j_s = []
+    max_min_indices = np.concatenate([np.argsort(responses_45_65)[:3], np.argsort(responses_45_65)[-3:]])
+    
+    for i in max_min_indices:
+        j = (indices[0][i])
+        j_s.append(j)
+    
+    return j_s
+    
+def plot_mutiple_gabor_filters(ssn, fp, save_fig=None, indices=None):
+    
+    if indices ==None:
+        indices = obtain_min_max_indices(ssn = ssn, fp = fp)
+        
+    fig, axes = plt.subplots(2,3, figsize=(8,8))
+    count=0
+    for row in range(0,2):
+        for col in range(0,3):
+            ax = axes[row, col]
+            im = plot_individual_gabor(ax, fp, ssn, index = indices[count])
+            count+=1
+    if save_fig:
+        fig.savefig(os.path.join(save_fig+'.png'))   
+    plt.show()
+    plt.close()
+
+def plot_individual_gabor(ax, fp, ssn, index):
+
+    if ax==None:
+        fig, ax = plt.subplots(1,1, figsize=(8,8))
+    labels = ['E_ON', 'I_ON', 'E_OFF', 'I_OFF']
+    ax.imshow(ssn.gabor_filters[index].reshape(129, 129), cmap = 'Greys')
+    ax.set_xlabel('Response '+str(fp[index]))
+    ax.set_title('ori '+str(ssn.ori_vec[index])+' ' +str(label_neuron(index)))
+    return ax
+
+def plot_tuning_curves(ssn, index, conv_pars, stimuli_pars, offset = 4, all_responses = None, save_fig = None):
+     
+        print('Neuron preferred orientation: ', str(ssn.ori_vec[index]))
+       
+        if all_responses!=None:
+            pass
+        else:
+            all_responses, ori_list = ori_tuning_curve_responses(ssn = ssn, index = index, conv_pars = conv_pars, stimuli_pars = stimuli_pars, offset = offset)
+        
+
+        plt.plot(ori_list, all_responses)
+        plt.axvline(x = ssn.ori_vec[index], linestyle = 'dashed', c='r', label= 'Pref ori')
+        plt.xlabel('Stimulus orientations')
+        plt.ylabel('Response')
+        plt.title('Neuron type ' +str(label_neuron(index)))
+        plt.legend()
+        if save_fig:
+            plt.savefig(save_fig+'.png')
+        plt.show()
+        plt.close()
+        
+        return all_responses
+    
+def label_neuron(index):
+    
+    labels = ['E_ON', 'I_ON', 'E_OFF', 'I_OFF']
+    return  labels[int(np.floor(index/81))]
