@@ -121,6 +121,7 @@ class _SSN_Base(object):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
+        print('Inp vec shape ', inp_vec.shape)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
         xvec, CONVG = util.Euler2fixedpt(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save, inds=inds)
@@ -365,7 +366,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         
         self.gE, self.gI = gE, gI
         
-       
+        print(self.gE, self.gI)
        
         self.edge_deg = filter_pars.edge_deg
         self.sigma_g = filter_pars.sigma_g
@@ -695,13 +696,15 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
                 gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
 
                 e_filters.append(gabor.filter.ravel())
-        e_filters=np.array(e_filters)
+        e_filters_o =np.array(e_filters)
 
         #create inhibitory filters
+
         #i_constant= gI / gE
-        e_filters = self.gE * e_filters
-        i_filters = self.gI * e_filters
-        all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
+        e_filters = self.gE * e_filters_o
+        i_filters = self.gI * e_filters_o
+        
+        #all_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))
 
         #create filters with phase equal to pi
         e_off_filters = - e_filters
@@ -732,13 +735,13 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
             output = maps[0]
 
         if select =='I_ON':
-            output=maps [1]
+            output=maps[1]
 
         if select == 'E_OFF':
-            output=maps [2]
+            output=maps[2]
 
         if select == 'I_OFF':
-            output = maps [4]
+            output = maps[3]
     
         return output
     
@@ -907,7 +910,6 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
        
         self.gE, self.gI = gE, gI
        
-        
         self.edge_deg = filter_pars.edge_deg
         self.sigma_g = filter_pars.sigma_g
         self.k = filter_pars.k
@@ -922,8 +924,8 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         self.gabor_filters, self.A = self.create_gabor_filters()
         
         self.make_local_W(J_2x2)
-        #self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
-            
+        
+
     def drdt(self, r, inp_vec):
         r1 = np.reshape(r, (-1, self.Nc))
         out = ( -r + self.powlaw(np.ravel(self.W @ r1) + inp_vec) ) / self.tau_vec
@@ -931,3 +933,4 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
     
     def make_local_W(self, J_2x2):
         self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
+        #self.W = np.kron(np.eye(2), np.asarray(J_2x2))
