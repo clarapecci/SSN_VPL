@@ -17,7 +17,7 @@ from numpy.random import binomial
 
 #####  ORIGINAL UTIL ####
 
-def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, save= None, inds=None, verbose=True, silent=False):
+def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, save= None, inds=None, verbose=True, silent=False, print_dt = False):
     """
     Finds the fixed point of the D-dim ODE set dx/dt = dxdt(x), using the
     Euler update with sufficiently large dt (to gain in computational time).
@@ -59,7 +59,9 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     CONVG = False
     
     for n in range(Nmax):
+        
         dx = dxdt(xvec) * dt
+        
         xvec = xvec + dx
         
         if PLOT:
@@ -97,6 +99,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
         axes[1].plot(np.arange(n+2)*dt, xplot_all)
         axes[1].set_ylabel('Sum of response')
         axes[1].set_xlabel('Steps')
+        axes[1].set_ylim([0, 1.2*np.max(np.asarray(xplot_all[-100:]))])
         axes[1].set_title('Final sum: '+str(np.sum(xvec))+', converged '+str(CONVG))
         
         axes[2].plot(np.arange(n+2)*dt, np.asarray(xplot_max))
@@ -356,7 +359,8 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='A':
         Js0 = [2.5, 1.3, 2.4, 1.0]
-        gE, gI =  0.5, 0.5 
+        
+        gE, gI =  0.4, 0.4
         print(gE, gI)
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
@@ -364,7 +368,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI = 0.4, 0.4
+        gE, gI = 0.5,0.5
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -372,8 +376,10 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
     if middle:
         conn_pars.p_local = [1, 1]
         
-
-    make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]]) * np.pi * ssn_pars.psi
+    if init_set =='C':
+        make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]])  * ssn_pars.psi
+    else:
+        make_J2x2 = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]]) * np.pi * ssn_pars.psi
         
     J_2x2 = make_J2x2(*Js0)
     s_2x2 = np.array([[sigEE, sigEI],[sigIE, sigII]])
