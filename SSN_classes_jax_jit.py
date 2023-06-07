@@ -51,15 +51,16 @@ class _SSN_Base(object):
     def powlaw(self, u):
         return  self.k * np.maximum(0,u)**self.n
 
-    def drdt(self, r, inp_vec):
-        out = ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
+    def drdt(self, r2, inp_vec):
+        out = ( -r2 + self.powlaw(self.W @ r2 + inp_vec) ) / self.tau_vec
         return out
 
-    def drdt_multi(self, r, inp_vec):
+    def drdt_multi(self, r, inp_vec, print_dt = False):
         """
         Compared to self.drdt allows for inp_vec and r to be
         matrices with arbitrary shape[1]
         """
+
         return (( -r + self.powlaw(self.W @ r + inp_vec) ).T / self.tau_vec ).T
 
     def dxdt(self, x, inp_vec):
@@ -117,7 +118,7 @@ class _SSN_Base(object):
 
         return r_fp, CONVG, avg_dx
     
-    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None):
+    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None, print_dt = False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
@@ -129,10 +130,11 @@ class _SSN_Base(object):
         return xvec, CONVG
 
     def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
+        
         if x_init is None:
             x_init = np.zeros((self.dim,))
         dxdt = lambda x : self.dxdt(x, inp_vec)
-        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol, PLOT)
+        x_fp, CONVG = util.Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol, PLOT)
         if not CONVG:
             print('Did not reach fixed point.')
         #else:
@@ -147,7 +149,7 @@ class _SSN_Base(object):
 
         return noise_sigsq, spatl_filt
     
-    @partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
+    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
         
         Nmax = int(Tmax/dt)
@@ -204,7 +206,8 @@ class _SSN_Base(object):
                     plt.savefig(save+'.png')
             plt.show()
             plt.close()
-
+        
+        
         return xvec, CONVG, avg_dx
 
     
@@ -336,7 +339,34 @@ class _SSN_AMPAGABA_Base(_SSN_Base):
         return ( -np.eye(self.num_rcpt * self.N) +
                 np.tile( self.Wrcpt * Phi[None,:] , (1, self.num_rcpt)) ) # broadcasting so that gain (Phi) varies by 2nd (presynaptic) neural index, and does not depend on receptor type or post-synaptic (1st) neural index
 
-        
+#################################################
+class SSNUniform(_SSN_Base):
+    def __init__(self, n, k, tauE, tauI, Jee, Jei, Jie, Jii,
+                                                Ne, Ni=None, **kwargs):
+        Ni = Ni if Ni is not None else Ne
+        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
+        # W = np.block([[Jee/Ne * np.ones((Ne,Ne)), -Jei/Ni * np.ones((Ne,Ni))],
+        #               [Jie/Ne * np.ones((Ni,Ne)), -Jii/Ni * np.ones((Ni,Ni))],])
+        # since np.block not yet implemented in jax.numpy:
+        W = np.vstack(
+            [np.hstack([Jee/Ne * np.ones((Ne,Ne)), -Jei/Ni * np.ones((Ne,Ni))]),
+             np.hstack([Jie/Ne * np.ones((Ni,Ne)), -Jii/Ni * np.ones((Ni,Ni))])])
+
+        super(SSNUniform, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
+                                    tau_vec=tau_vec, W=W, **kwargs)
+
+    @property
+    def neuron_params(self):
+        return dict(n=self.n, k=self.k,
+                    tauE=self.tau_vec[0], tauI=self.tau_vec[self.Ne])
+
+# ==========================  2 neuron models ==================================
+
+class SSN_2D(SSNUniform):
+    def __init__(self, n, k, tauE, tauI, Jee, Jei, Jie, Jii, **kwargs):
+        super(SSN_2D, self).__init__(n, k, tauE, tauI, Jee, Jei, Jie, Jii,
+                                        Ne=1, Ni=1, **kwargs)
+##############################################################        
 
 class SSN2DTopoV1_ONOFF(_SSN_Base):
     _Lring = 180
@@ -693,7 +723,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         #Iterate over SSN map
         for i in range(self.ori_map.shape[0]):
             for j in range(self.ori_map.shape[1]):
-                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
+                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k_filt, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
 
                 e_filters.append(gabor.filter.ravel())
         e_filters_o =np.array(e_filters)
@@ -713,17 +743,18 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
 
         SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
         
-        
+
         #remove mean so that input to constant grating is 0
         SSN_filters = SSN_filters - np.mean(SSN_filters, axis=1)[:, None]
         if self.A == None:
-            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
             self.A = A
+        
         #Normalise Gabor filters
         SSN_filters = SSN_filters*self.A
         
         self.gabor_filters = SSN_filters
-        
+
         return SSN_filters, self.A
     
     def select_type(self, vec, select='E_ON'):
@@ -887,14 +918,14 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         self.Nc = grid_pars.gridsize_Nx**2 #number of columns
         Ni = Ne = 2 * self.Nc 
         n=ssn_pars.n
-        k=ssn_pars.k
+        self.k=ssn_pars.k
         tauE= ssn_pars.tauE
         tauI=ssn_pars.tauI
         tau_vec = np.hstack([tauE * np.ones(self.Nc), tauI * np.ones(self.Nc)])
         tau_vec = np.kron(np.array([1,1]), tau_vec )
         tau_s=ssn_pars.tau_s
   
-        super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
+        super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=self.k, Ne=Ne, Ni=Ni,
                                     tau_vec=tau_vec, **kwargs)
         
         self.grid_pars = grid_pars
@@ -907,20 +938,15 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         else:
             self.input_ori_map(ori_map)
             
-       
         self.gE, self.gI = gE, gI
-       
+
         self.edge_deg = filter_pars.edge_deg
         self.sigma_g = filter_pars.sigma_g
-        self.k = filter_pars.k
+        self.k_filt = filter_pars.k
         self.conv_factor =  filter_pars.conv_factor
         self.degree_per_pixel = filter_pars.degree_per_pixel
         
         self.A=ssn_pars.A
-        
-
-                
-        
         self.gabor_filters, self.A = self.create_gabor_filters()
         
         self.make_local_W(J_2x2)
@@ -932,5 +958,5 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         return out
     
     def make_local_W(self, J_2x2):
-        self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
-        #self.W = np.kron(np.eye(2), np.asarray(J_2x2))
+        #self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
+        self.W = np.kron(np.eye(2), np.asarray(J_2x2))

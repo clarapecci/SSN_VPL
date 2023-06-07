@@ -120,13 +120,13 @@ class _SSN_Base(object):
         return r_fp, CONVG, avg_dx
     
     
-    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None):
+    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None, print_dt = False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        xvec, CONVG  = util.Euler2fixedpt(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save, inds=inds)
+        xvec, CONVG  = util.Euler2fixedpt(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
 
         return xvec, CONVG
     
@@ -447,12 +447,12 @@ class SSN2DTopoV1(_SSN_Base):
     def __init__(self, ssn_pars, grid_pars, conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, ori_map=None, **kwargs):
         Ni = Ne = grid_pars.gridsize_Nx**2
         n=ssn_pars.n
-        k=ssn_pars.k
+        self.k=ssn_pars.k
         tauE= ssn_pars.tauE
         tauI=ssn_pars.tauI
         tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
 
-        super(SSN2DTopoV1, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
+        super(SSN2DTopoV1, self).__init__(n=n, k=self.k, Ne=Ne, Ni=Ni,
                                     tau_vec=tau_vec, **kwargs)
 
         self.grid_pars = grid_pars
@@ -466,11 +466,11 @@ class SSN2DTopoV1(_SSN_Base):
 
             
         self.gE, self.gI = gE, gI
-       
-        
+
+   
         self.edge_deg = filter_pars.edge_deg
         self.sigma_g = filter_pars.sigma_g
-        self.k = filter_pars.k
+        self.k_filt = filter_pars.k
         self.conv_factor =  filter_pars.conv_factor
         self.degree_per_pixel = filter_pars.degree_per_pixel
         
@@ -747,7 +747,7 @@ class SSN2DTopoV1(_SSN_Base):
         #Iterate over SSN map
         for i in range(self.ori_map.shape[0]):
             for j in range(self.ori_map.shape[1]):
-                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
+                gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k_filt, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
 
                 e_filters.append(gabor.filter.ravel())
         e_filters=np.array(e_filters)
@@ -761,7 +761,7 @@ class SSN2DTopoV1(_SSN_Base):
         #remove mean so that input to constant grating is 0
         SSN_filters = SSN_filters - np.mean(SSN_filters, axis=1)[:, None]
         if self.A == None:
-            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
         
         #Normalise Gabor filters
         SSN_filters = SSN_filters*A
