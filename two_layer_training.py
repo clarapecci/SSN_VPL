@@ -65,7 +65,7 @@ def constant_to_vec(c_E, c_I, ssn, sup = False):
         
     return constant_vec
 
-def our_max(x, beta=0.5):
+def our_max(x, beta =1):
     max_val = np.log(np.sum(np.exp(x*beta)))/beta
     return max_val
 
@@ -112,7 +112,10 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 1
     
     layer_output = fp_E_on + fp_E_off
     
-    r_max = np.maximum(0, (our_max(fp[:ssn.Ne])/Rmax_E - 1)) + np.maximum(0, (our_max(fp[ssn.Ne:-1])/Rmax_I - 1))
+    #r_max = np.maximum(0, (our_max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (our_max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (our_max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (our_max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
+    
+    r_max = np.maximum(0, (np.max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (np.max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
+    
     
     if return_fp ==True:
         return layer_output, r_max, avg_dx, fp
@@ -132,8 +135,7 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I 
         r_box_i = ssn.apply_bounding_box(fp, size=3.2, select='I_ON').ravel()
         r_box = [r_box, r_box_i]
     
-    r_max = np.maximum(0, (our_max(fp[:ssn.Ne])/Rmax_E - 1)) + np.maximum(0, (our_max(fp[ssn.Ne:-1])/Rmax_I - 1))
-    
+    r_max = np.maximum(0, (np.max(fp[:ssn.Ne])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:-1])/Rmax_I - 1))
     return r_box, r_max, avg_dx
 
 
@@ -154,7 +156,7 @@ def sep_exponentiate(J_s):
 
 
 #@partial(jax.jit, static_argnums=( 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22), device = jax.devices()[0]) 
-def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_sup_ori_map, train_data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, sig_noise, noise_ref, noise_target, debug_flag=False):
+def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_sup_ori_map, train_data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, noise_ref, noise_target, noise_type ='poisson', debug_flag=False):
     
     '''
     SSN two-layer model. SSN layers are regenerated every run. Static arguments in jit specify parameters that stay constant throughout training. Static parameters cant be dictionaries
@@ -206,36 +208,20 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     r_ref, r_max_ref_sup, avg_dx_ref_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars)
     r_target, r_max_target_sup, avg_dx_target_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_target, conv_pars)
     
-    noise_type = None
-    #Add additional noise before sigmoid layer
+    #Add noise
     if noise_type =='additive':
-        noise_add = sig_noise*numpy.random.normal(size=(r_ref.shape))
-        r_ref =r_ref + noise_add
-        r_target = r_target + sig_noise*numpy.random.normal(size=(r_target.shape))
+        r_ref = r_ref + noise_ref
+        r_target = r_target + noise_target
         
     elif noise_type == 'multiplicative':
-        r_ref = r_ref*(1 + sig_noise*numpy.random.normal(size=(r_ref.shape)))
-        r_target = r_target*(1 + sig_noise*numpy.random.normal(size=(r_target.shape)))
+        r_ref = r_ref*(1 + noise_ref)
+        r_target = r_target*(1 + noise_target)
         
     elif noise_type =='poisson':
-        #noise_add = sig_noise*np.sqrt(jax.nn.softplus(r_ref))*numpy.random.normal(size=(r_ref.shape))
-        
-        noise_add = sig_noise*jax.random.normal(key, shape=(r_ref.shape))
-        r_ref = r_ref + noise_add*np.sqrt(jax.nn.softplus(r_ref))
+        r_ref = r_ref + noise_ref*np.sqrt(jax.nn.softplus(r_ref))
+        r_target = r_target + noise_target*np.sqrt(jax.nn.softplus(r_target))
 
-        r_target = r_target + sig_noise*np.sqrt(jax.nn.softplus(r_target))*numpy.random.normal(size=(r_target.shape))
-       
-    elif noise_type =='no_noise':
-        pass
-    
-    #else:
-    #    raise Exception('Noise type must be one of: additive, mulitiplicative, poisson')
-  
-    r_ref = r_ref + noise_ref
-    r_target = r_target + noise_target
     delta_x = r_ref - r_target
-
-    
     sig_input = np.dot(w_sig, (delta_x)) + b_sig
     
     #Apply sigmoid function - combine ref and target
@@ -253,21 +239,21 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     all_losses = np.vstack((loss_binary, loss_avg_dx, loss_r_max, loss_w, loss_b, loss))
     pred_label = np.round(x) 
 
-   
-    return loss, all_losses, pred_label, sig_input, x,  noise_ref
+
+    return loss, all_losses, pred_label, sig_input, x,  r_ref
 
 
 
 
 
 
-jitted_model = jax.jit(_new_model, static_argnums = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22], device = jax.devices()[0])
+jitted_model = jax.jit(_new_model, static_argnums = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25], device = jax.devices()[0])
 #Vmap implementation of model function
 vmap_model_jit = vmap(jitted_model, in_axes = ([None, None], None, None, None, None, None, None
-                            , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, None, 0, 0, None) )
+                            , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, 0, 0, None, None) )
 
 vmap_model = vmap(_new_model, in_axes = ([None, None], None, None, None, None, None, None
-                            , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, None, 0, 0, None) )
+                            , None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None, None, None, None, None, None, None, 0, 0, None, None) )
 
 
 
@@ -308,12 +294,11 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     filter_pars = constant_ssn_pars['filter_pars']
     conv_pars = constant_ssn_pars['conv_pars']
     loss_pars = constant_ssn_pars['loss_pars']
-    sig_noise = constant_ssn_pars['sig_noise']
-    noise_type = constant_ssn_pars['noise_type']
     noise_ref = constant_ssn_pars['noise_ref']
     noise_target = constant_ssn_pars['noise_target']
+    noise_type = constant_ssn_pars['noise_type']
     
-    return vmap_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_mid_ori_map, data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, sig_noise, noise_ref, noise_target, debug_flag)
+    return vmap_model_jit(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, ssn_mid_ori_map, ssn_mid_ori_map, data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, noise_ref, noise_target, noise_type, debug_flag)
     
 
 
@@ -352,10 +337,7 @@ def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars,
     
     plt.show()  
     plt.close() 
-    
-    noises = np.vstack(np.asarray(noises))
 
-    #plot_r_ref(noises, epoch_c = None, save = os.path.join(save+'_noise') )
     
     
     
@@ -373,7 +355,15 @@ def plot_w_sig(w_sig,  epochs_to_save , epoch_c = None,save=None):
     plt.show()
     plt.close()
     
+
+def generate_noise(constant_ssn_pars, sig_noise,  batch_size, length, noise_type ='poisson'):
     
+
+    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
+    constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, length))
+    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
+    constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size,length))
+    return constant_ssn_pars
     
 
 
@@ -434,7 +424,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     constant_ssn_pars['sigma_oris']=sigma_oris
     readout_pars = dict(w_sig = w_sig, b_sig = b_sig)
     ssn_layer_pars = dict(logJ_2x2 = logJ_2x2, c_E = c_E, c_I = c_I, f_E = f_E, f_I = f_I)#, sigma_oris = sigma_oris)
-    loss_pars = constant_ssn_pars['loss_pars']
+
     
     print(constant_ssn_pars['ssn_mid_ori_map'])
     
@@ -444,8 +434,8 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     optimizer = optax.adam(eta)
     readout_state = optimizer.init(readout_pars)
     
-    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(epochs, eta, sig_noise, offset, loss_pars.lambda_w, batch_size, noise_type))
-    print('Loss parameters dx {}, w {} '.format( constant_ssn_pars['loss_pars'].lambda_dx, constant_ssn_pars['loss_pars'].lambda_w))
+    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(epochs, eta, sig_noise, offset, constant_ssn_pars['loss_pars'].lambda_w, batch_size, noise_type))
+    print('Loss parameters dx {}, w {} '.format(constant_ssn_pars['loss_pars'].lambda_dx, constant_ssn_pars['loss_pars'].lambda_w))
 
     epoch_c = epochs
     loop_epochs  = epochs
@@ -461,7 +451,6 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     loss_and_grad_ssn = jax.value_and_grad(loss, argnums=0, has_aux = True)
     
     #Test accuracy before training
-
     #test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, save=os.path.join(results_dir+ '_before_training'), number_trials = 20, batch_size = 500)
    
 
@@ -472,21 +461,15 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
            
         #Load next batch of data and convert
         train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
-        #train_data = util.load(os.path.join(os.getcwd(), 'results', 'data', 'two_stage', 'noisy_2',  'train_data'+str(epoch)))
-        #util.save_h5(os.path.join(os.getcwd(), 'results', 'data', 'two_stage', 'noisy_2', 'train_data'+str(epoch)), train_data)
-        
        
         if epoch ==epoch_c+extra_stop:
             debug_flag = True
         else:
             debug_flag = False
             
+        #Generate noise
+        constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
 
-        constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-        constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-        constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-        constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-        
         #Compute loss and gradient
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data , debug_flag)
         
@@ -511,10 +494,8 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
             
             start_time = time.time()
             #Compute loss and gradient
-            constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-            constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-            constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-            constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
+            constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
+            
             [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _ ]], _= loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_ssn_pars, test_data)
             val_time = time.time() - start_time
             
@@ -546,7 +527,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
             loop_epochs = epoch_c + extra_stop
             save_dict = dict(training_accuracy = train_true_acc)
             save_dict.update(readout_pars)
-            #util.save_h5(os.path.join(results_dir+'dict_0'), save_dict) #save  true_acc accuracy here
+        
        
             flag=False
 
@@ -586,14 +567,8 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                 #Load next batch of data and convert
                 train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
               
-                
-                
                 #Compute loss and gradient
-                constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-                constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-                constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-                constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-                
+                constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
                 [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data, debug_flag)
 
                 all_losses = np.hstack((all_losses, epoch_all_losses))
@@ -611,16 +586,12 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                     
                     
                     start_time = time.time()
-                    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-                    constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-                    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-                    constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-                    
+                    constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
                     [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _]], _= loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_ssn_pars, test_data)
                     val_time = time.time() - start_time
                     print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {})'.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
                     
-                    if epoch%50 ==0:
+                    if epoch%50 ==0 or epoch==1:
                         print('Training accuracy: {}, all losses{}'.format(train_true_acc, epoch_all_losses))
                     
                     val_loss_per_epoch.append([val_loss, epoch+final_epoch])
@@ -647,21 +618,18 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
                 
         epoch+=1
-    save_w_sigs = np.asarray(np.vstack(save_w_sigs))
-    plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir+'_w_sig_evolution') )
+    
 
 
     #THIRD STAGE
+    '''
     print('Entering third stage')
     for epoch in range(final_epoch_2+1, final_epoch_2+2):
         print(epoch)
         train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
 
         #Compute loss and gradient
-        constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-        constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
-        constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-        constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, w_sig.shape[0]))
+        constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data , debug_flag)
 
         training_losses.append(epoch_loss)
@@ -670,7 +638,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
         train_sig_output.append(train_x)
         r_refs.append(train_r_ref)
 
-        '''
+        
         if epoch %10 == 0:
 
                 #Evaluate model 
@@ -687,17 +655,20 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                 if results_filename:
                         save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch = epoch+final_epoch)
                         results_writer.writerow(save_params)
-        '''        
+           
+        
         #Update parameters
         updates, readout_state = optimizer.update(grad, readout_state)
         readout_pars = optax.apply_updates(readout_pars, updates)
-
+        '''
    
     if flag==False:
         epoch_c = [epoch_c, extra_stop, final_epoch_2]
     #r_refs = np.vstack(np.asarray(r_refs))
 
     #plot_r_ref(r_refs, epoch_c = epoch_c, save = os.path.join(results_dir+'_noise') )
+    save_w_sigs = np.asarray(np.vstack(save_w_sigs))
+    plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir+'_w_sig_evolution') )
    
     return [ssn_layer_pars, readout_pars], np.vstack([val_loss_per_epoch]), all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epoch_c, save_w_sigs
 
