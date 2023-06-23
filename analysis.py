@@ -14,7 +14,7 @@ from jax import vmap
 import pdb
 import optax
 from functools import partial
-
+from pdb import set_trace
 import math
 import csv
 import time
@@ -23,7 +23,8 @@ from torch.utils.data import DataLoader
 import numpy
 from util import create_gratings
 from two_layer_training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point
-from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF
+from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
+from SSN_classes_jax_on_only import SSN2DTopoV1
 
 def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False, s_2x2 = None):
     
@@ -57,6 +58,8 @@ def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars,
     
     return np.asarray(all_responses_E), np.asarray(all_responses_I)
 
+
+
 def findRmax(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False):
     
     responses = find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition)
@@ -66,49 +69,8 @@ def findRmax(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv
     
     return Rmax_E, Rmax_I
 
+    
 
-def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 20, batch_size = 500, vmap_model = None):
-    '''
-    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
-    Input: 
-        network parameters, number of trials and batch size of each trial
-    Output:
-        histogram of the accuracies 
-    
-    '''
-    if vmap_model ==None:
-        vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
-    
-    all_accs = []
-    
-    ssn=SSN2DTopoV1_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, gE=gE, gI=gI, sigma_oris=sigma_oris)
-    ssn_ori_map = ssn.ori_map
-    print(w_sig)
-    
-    logJ_2x2 =take_log(J_2x2)
-    logs_2x2 = np.log(s_2x2)
-    sigma_oris = np.log(sigma_oris)
-    
-    for i in range(number_trials):
-        
-        testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
-        
-        _, _, pred_label, _, _ =vmap_model(ssn_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
-                         
-        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
-        all_accs.append(true_accuracy)
-   
-    plt.hist(all_accs)
-    plt.xlabel('Accuracy')
-    plt.ylabel('Frequency')
-   
-    
-    if save:
-            plt.savefig(save+'.png')
-    
-    plt.show()  
-    plt.close() 
-    
 def plot_training_accs(training_accs, epoch_c = None, save=None):
     
     plt.plot(training_accs)
@@ -350,8 +312,9 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_
     fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(10,10))
 
     if 'J_EE_m' in results.columns:
-        results.plot(x='epoch', y=["J_EE_m", "J_EI_m", "J_IE_m", "J_II_m", "J_EE_s", "J_EI_s", "J_IE_s", "J_II_s"], ax=axes[0,0])
-
+        results.plot(x='epoch', y=["J_EE_m", "J_EI_m", "J_IE_m", "J_II_m", "J_EE_s", "J_EI_s", "J_IE_s", "J_II_s"], ax=axes[0,0])#, '--')
+        
+        
     if 's_EE_s' in results.columns:
         results.plot(x='epoch', y=["s_EE_s", "s_EI_s", "s_IE_s", "s_II_s"], ax=axes[0,1])
 
@@ -644,80 +607,27 @@ def case_2(pre_param, post_param, opt_pars, test_data, type_param = None, index=
 
     
     
-def response_matrix(opt_pars, ssn_pars, grid_pars, conn_pars, conv_pars, gE, gI, filter_pars, stimuli_pars, radius_list, ori_list):
-    '''
-    Construct a response matrix of sizze n_orientations x n_neurons x n_radii
-    '''
-    #Initialize ssn
-    
-    J_2x2, s_2x2 = exponentiate(opt_pars)
-    constant_vector = constant_to_vec(opt_pars['c_E'], opt_pars['c_I'])
-    
-    ssn=SSN2DTopoV1_AMPAGABA_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, gE=gE, gI=gI, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, sigma_oris = opt_pars['sigma_oris'])
-    
-    responses = []
-    for i in range(len(ori_list)):
-        
-        #Find responses at different stimuli radii
-        x_response = surround_suppression(ssn, stimuli_pars, conv_pars, radius_list, constant_vector, ref_ori = ori_list[i])
-        print(x_response.shape)
-        responses.append(x_response)
-    
-    
-    return np.stack(responses, axis = 2)
-
-def surround_suppression(ssn, stimuli_pars, conv_pars, radius_list, constant_vector, ref_ori, title= None):    
-    all_responses = []
-    
-    if ref_ori==None:
-        ref_ori = ssn.ori_map[4,4]
-    
-    print(ref_ori) #create stimuli in the function just input radii)
-    for radii in radius_list:
-        
-        stimuli_pars['outer_radius'] = radii
-        stimuli_pars['inner_radius'] = radii*5/6
-        
-        test_data = create_data(stimuli_pars, number = 1, offset = 2, ref_ori = ref_ori)
-        stimuli = test_data['ref'][0]
-
-        output_ref=np.matmul(ssn.gabor_filters, stimuli) + constant_vector
-        SSN_input_ref=np.maximum(0, output_ref)
-
-        #Find the fixed point 
-        x_ref, _, _ = obtain_fixed_point(ssn, SSN_input_ref, conv_pars)
-        
-        centre_response = x_ref[int((len(x_ref) - 1)/2)]
-
-        all_responses.append(x_ref.ravel())
-        print('Mean population response {} (max in population {}), centre neuron {}'.format(x_ref.mean(), x_ref.max(), centre_response))
-    
-    if title:
-        plt.plot(radius_list, np.asarray(all_responses))
-        plt.xlabel('Radius')
-        plt.ylabel('Response of centre neuron')
-        if title:
-            plt.title(title)
-        plt.show()
-    
-    return np.vstack(all_responses)
 
 
-from two_layer_training import create_data, model
+from two_layer_training import create_data, model, generate_noise
 from jax import vmap 
 import numpy
 
 
 def vmap_eval_hist(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
 
-    losses, all_losses, pred_label, _, _ = model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
+   
+    losses, all_losses, pred_label, sig_in, sig_out, _ = model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
     #Find accuracy based on predicted labels
-    true_accuracy = np.sum(data['label'] == pred_label)/len(data['label']) 
-
+   
+    true_accuracy = np.sum(data['label'] == pred_label)/len(data['label'])
     vmap_loss= np.mean(losses)
     all_losses = np.mean(all_losses, axis = 0)
+    sig_input = np.mean(sig_in)
+    #std = np.std(sig_in) 
+    sig_output = np.mean(sig_out)
     
-    return vmap_loss, true_accuracy
+    return vmap_loss, true_accuracy, sig_input, sig_output
                     
                     
 def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
@@ -727,23 +637,25 @@ def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag
         losses: size(n_weights, n_stimuli )
         accuracy: size( n_weights)
     '''
-    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'sigma_oris': None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None, 'sig_noise': None, 'ssn_pars': None}, {'label': None, 'ref': None, 'target': None}, None))
-    losses, true_acc = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
-
-    return losses, true_acc
+    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None]}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None, 'sigma_oris': None}, {'label': None, 'ref': None, 'target': None}, None))
+    losses, true_acc, sig_input, sig_output = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
+    
+    return losses, true_acc, sig_input, sig_output
                     
     
     
-def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, trials = 5, p = 0.9, printing=True):
+def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, noise, offset, trials = 5, p = 0.9, printing=True):
     
     
     N_neurons = 25
     accuracies = []
 
-    readout_pars['w_sig']= numpy.random.normal(size = (trials, N_neurons)) / np.sqrt(N_neurons)
+    readout_pars['w_sig']= numpy.random.normal(scale = 0.25, size = (trials, N_neurons)) / np.sqrt(N_neurons)
 
-    train_data = create_data(stimuli_pars, offset = offset)
-    val_loss, true_acc = vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data)
+    train_data = create_data(stimuli_pars, offset = offset, number=trials)
+    constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = noise, batch_size = len(train_data['ref']), length= readout_pars['w_sig'].shape[1])
+                                       
+    val_loss, true_acc, sig_input, sig_output = vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data)
     
     #calcualate how many accuracies are above 90
     higher_90 = np.sum(true_acc[true_acc>p]) / len(true_acc)
@@ -752,10 +664,10 @@ def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_par
         print('grating contrast = {}, jitter = {}, noise std={}, acc (% >90 ) = {}'.format(stimuli_pars['grating_contrast'], stimuli_pars['jitter_val'], stimuli_pars['std'], higher_90))
     print(true_acc.shape)
     
-    return higher_90, true_acc, readout_pars['w_sig']
+    return higher_90, true_acc, readout_pars['w_sig'], sig_input, sig_output
 
 
-def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None):
+def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None, trials=100):
     '''
     Find initial accuracy for varying jitter and noise levels. 
     
@@ -771,6 +683,8 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, o
     all_accuracies=[]
     percent_50=[]
     good_w_s=[]
+    all_sig_inputs = []
+    all_sig_outputs = []
     
     
     for sig_noise in list_noise:
@@ -778,9 +692,10 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, o
             
             #stimuli_pars['std'] = noise
             stimuli_pars['jitter_val'] = jitter
-            constant_ssn_pars['sig_noise'] = sig_noise
             
-            higher_90, acc, w_s = test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, p=p,  trials=100, printing=False)
+            
+            constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
+            higher_90, acc, w_s, sig_input, sig_output = test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, noise = sig_noise, offset = offset, p=p,  trials=trials, printing=False)
             print(acc.shape)
             #save low accuracies
             if higher_90 < 0.05:
@@ -790,15 +705,47 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, o
             indices = list(filter(lambda x: acc[x] == 0.5, range(len(acc))))
             w_s = [w_s[idx] for idx in indices]
             good_w_s.append(w_s)
+            all_sig_inputs.append(sig_input)
+            all_sig_outputs.append(sig_output)
+            
             
             all_accuracies.append([jitter, sig_noise, acc])
             
     plot_histograms(all_accuracies, save_fig = save_fig)
-        
+    
+    #plot_all_sig(all_sig_inputs, axis_title = 'Sig input', save_fig = save_fig)
     
     return all_accuracies, low_acc, percent_50, good_w_s
 
 
+
+def plot_all_sig(all_sig_inputs, axis_title = None, save_fig = None):
+    
+    n_rows =  int(np.sqrt(len(all_sig_inputs)))
+    n_cols = int(np.ceil(len(all_sig_inputs) / n_rows))
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(15, 20))
+    fig.subplots_adjust(wspace=0.5, hspace=0.5)
+
+    count = 0
+
+
+   #plot histograms
+    for k in range(n_rows):
+        for j in range (n_cols):
+            axs[k,j].hist(all_sig_inputs[count])
+            axs[k,j].set_xlabel(axis_title)
+            axs[k,j].set_ylabel('Frequency')
+            count+=1
+            if count==len(all_sig_inputs):
+                break
+    
+    if save_fig:
+        fig.savefig(save_fig+'_'+axis_title+'.png')
+        
+    fig.show()
+    plt.close()
+    
+    
 def plot_histograms(all_accuracies, save_fig = None):
     
     n_rows =  int(np.sqrt(len(all_accuracies)))
@@ -932,7 +879,6 @@ def ori_tuning_curve_responses(ssn, conv_pars, stimuli_pars, index = None, offse
     
         output_ref=np.matmul(ssn.gabor_filters, stimulus_data['ref'].squeeze()) 
        
-
         #Rectify output
         SSN_input_ref=np.maximum(0, output_ref) +  constant_vector
         
@@ -945,6 +891,8 @@ def ori_tuning_curve_responses(ssn, conv_pars, stimuli_pars, index = None, offse
             all_responses.append(fp[index])
         
     return np.vstack(all_responses), ori_list
+
+
 
 def obtain_min_max_indices(ssn, fp):
     idx = (ssn.ori_vec>45)*(ssn.ori_vec<65)

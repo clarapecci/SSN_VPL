@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy 
 from torch.utils.data import DataLoader
 from numpy.random import binomial
+from pdb import set_trace
 
 
 
@@ -324,6 +325,7 @@ def take_log(J_2x2):
     
     return logJ_2x2
 
+make_J2x2_o = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]])
 
 def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
     
@@ -619,7 +621,6 @@ class BW_Grating(JiaGrating):
         #sum image over channels
         image=numpy.sum(original, axis=2) 
         
-        
         #crop image
         if self.crop_f:
             image=image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]            
@@ -633,8 +634,6 @@ def make_gratings(ref_ori, target_ori, jitter_val=5, **stimuli_pars, ):
     '''
     #generate jitter for reference and target
     jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
-
-    
     
     #create reference grating
     ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
@@ -659,8 +658,8 @@ def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
     #initialise empty arrays
     labels_list=[]
     training_gratings=[]
-   
     
+   
     for i in range(number):
         
         if numpy.random.uniform(0,1,1) < 0.5:
@@ -1064,4 +1063,7 @@ def recursively_load_dict_contents_from_group(h5file, path):
             ans[key] = recursively_load_dict_contents_from_group(h5file, path + key + '/')
 
     return ans
+
+
+
 
