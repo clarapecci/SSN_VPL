@@ -74,9 +74,13 @@ def sigmoid(x, epsilon = 0.01):
     '''
     Introduction of epsilon stops asymptote from reaching 1 (avoids NaN)
     '''
-    sig = 1/(1+np.exp(x))
-    
-    return (1 - 2*epsilon)*sig + epsilon
+    return (1 - 2*epsilon)*sig(x) + epsilon
+
+def sig(x):
+    return 1/(1+np.exp(-x))
+
+def f_sigmoid(x, a = 0.2):
+    return (1-a) + 2*a*sig(x)
 
 
 def binary_loss(n, x):
@@ -116,14 +120,17 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 1
     
     r_max = np.maximum(0, (np.max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (np.max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
     
+    max_E =  np.maximum(np.max(fp[ssn.Ne:3*int(ssn.Ne/2)]), np.max(fp[:int(ssn.Ne/2)]))
+    max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
     
     if return_fp ==True:
-        return layer_output, r_max, avg_dx, fp
+        return layer_output, r_max, avg_dx, fp, max_E, max_I
     else:
         return layer_output, r_max, avg_dx
     
 
-def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None):
+def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
+    
     #Obtain fixed point
     fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds)
     
@@ -136,7 +143,14 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I 
         r_box = [r_box, r_box_i]
     
     r_max = np.maximum(0, (np.max(fp[:ssn.Ne])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:-1])/Rmax_I - 1))
-    return r_box, r_max, avg_dx
+    
+    max_E = np.max(fp[:ssn.Ne])
+    max_I = np.max(fp[ssn.Ne:-1])
+    
+    if return_fp ==True:
+        return r_box, r_max, avg_dx, fp, max_E, max_I
+    else:
+        return r_box, r_max, avg_dx
 
 
 def take_log(J_2x2):
@@ -174,10 +188,10 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     J_2x2_s = sep_exponentiate(logJ_2x2[1])
     s_2x2_s = np.exp(logs_2x2)
     sigma_oris_s = np.exp(sigma_oris)
-    f_E = np.exp(f_E)
-    f_I = np.exp(f_I)
+    _f_E = f_sigmoid(f_E)
+    _f_I = f_sigmoid(f_I)
     
-
+    
     #Initialise network
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE_m, gI=gI_m, ori_map = ssn_mid_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_s, filter_pars=filter_pars, J_2x2=J_2x2_s, s_2x2=s_2x2_s, gE = gE_s, gI=gI_s, sigma_oris = sigma_oris_s, ori_map = ssn_sup_ori_map)
@@ -196,16 +210,16 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     SSN_input_target = np.maximum(0, output_target) + constant_vector
 
     #Find fixed point for middle layer
-    r_ref_mid, r_max_ref_mid, avg_dx_ref_mid = middle_layer_fixed_point(ssn_mid, SSN_input_ref, conv_pars)
+    r_ref_mid, r_max_ref_mid, avg_dx_ref_mid, _, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_mid, SSN_input_ref, conv_pars, return_fp = True)
     r_target_mid, r_max_target_mid, avg_dx_target_mid = middle_layer_fixed_point(ssn_mid, SSN_input_target, conv_pars)
     
  
     #Input to superficial layer
-    sup_input_ref = np.hstack([r_ref_mid*f_E, r_ref_mid*f_I]) + constant_vector_sup
-    sup_input_target = np.hstack([r_target_mid*f_E, r_target_mid*f_I]) + constant_vector_sup
+    sup_input_ref = np.hstack([r_ref_mid*_f_E, r_ref_mid*_f_I]) + constant_vector_sup
+    sup_input_target = np.hstack([r_target_mid*_f_E, r_target_mid*_f_I]) + constant_vector_sup
     
     #Find fixed point for superficial layer
-    r_ref, r_max_ref_sup, avg_dx_ref_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars)
+    r_ref, r_max_ref_sup, avg_dx_ref_sup, _, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars, return_fp= True)
     r_target, r_max_target_sup, avg_dx_target_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_target, conv_pars)
     
     #Add noise
@@ -240,7 +254,7 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     pred_label = np.round(x) 
 
 
-    return loss, all_losses, pred_label, sig_input, x,  r_ref
+    return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
 
 
 
@@ -275,9 +289,11 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     c_I = ssn_layer_pars['c_I']
     f_E = ssn_layer_pars['f_E']
     f_I = ssn_layer_pars['f_I']
+    #f_E = constant_ssn_pars['f_E']
+    #f_I = constant_ssn_pars['f_I']
     
-    #sigma_oris = ssn_layer_pars['sigma_oris']
-    sigma_oris = constant_ssn_pars['sigma_oris']
+    #sigma_oris = constant_ssn_pars['sigma_oris']
+    sigma_oris = ssn_layer_pars['sigma_oris']
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
 
@@ -303,7 +319,7 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
 
 
 
-def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, save=None, number_trials = 5, batch_size = 5):
+def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, sig_noise, save=None, number_trials = 5, batch_size = 5):
     '''
     Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
     Input: 
@@ -314,18 +330,18 @@ def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars,
     '''
     
     all_accs = []
-    noises = []
         
     for i in range(number_trials):
         
-        testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
+        testing_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
         
-        constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-        _, _, pred_label, _, _, trial_noise=model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = testing_data)
+        constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+        
+        _, _, pred_label, _, _, _=model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = testing_data)
         
         true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
         all_accs.append(true_accuracy)
-        noises.append(trial_noise)
+
    
     plt.hist(all_accs)
     plt.xlabel('Accuracy')
@@ -337,9 +353,6 @@ def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars,
     
     plt.show()  
     plt.close() 
-
-    
-    
     
     
     
@@ -401,10 +414,10 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     logJ_2x2_m = take_log(J_2x2_m)
     logJ_2x2 = [logJ_2x2_m, logJ_2x2_s]
     sigma_oris = np.log(sigma_oris_s)
-    f_E = np.log(f_E)
-    f_I = np.log(f_I)
-    
-    constant_ssn_pars['key'] = random.PRNGKey(42) #ADD SEED
+
+    #Define jax seed
+    constant_ssn_pars['key'] = random.PRNGKey(numpy.random.randint(0,10000)) 
+   
 
     if ssn_ori_map == None:
         #Initialise networks
@@ -421,9 +434,9 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     
     #Reassemble parameters into corresponding dictionaries
     constant_ssn_pars['logs_2x2'] = logs_2x2
-    constant_ssn_pars['sigma_oris']=sigma_oris
+    #constant_ssn_pars['sigma_oris']=sigma_oris
     readout_pars = dict(w_sig = w_sig, b_sig = b_sig)
-    ssn_layer_pars = dict(logJ_2x2 = logJ_2x2, c_E = c_E, c_I = c_I, f_E = f_E, f_I = f_I)#, sigma_oris = sigma_oris)
+    ssn_layer_pars = dict(logJ_2x2 = logJ_2x2, c_E = c_E, c_I = c_I, f_E = f_E, f_I = f_I, sigma_oris = sigma_oris)
 
     
     print(constant_ssn_pars['ssn_mid_ori_map'])
@@ -490,7 +503,6 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
         if epoch in epochs_to_save:
             #Evaluate model 
             test_data = create_data(stimuli_pars, number = test_size, offset = offset, ref_ori = ref_ori)
-
             
             start_time = time.time()
             #Compute loss and gradient
@@ -542,8 +554,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
     
         #Start second stage of training after reaching criterion or after given number of epochs
         if (flag == False and epoch>=epoch_c+extra_stop) or (flag == True and epoch==loop_epochs):
-            
-   
+               
             #Final save before second stagenn
             if results_filename:
                 save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch)
@@ -583,14 +594,13 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
                     #Evaluate model 
                     test_data = create_data(stimuli_pars, number = test_size, offset = offset, ref_ori = ref_ori)
-                    
-                    
+                                        
                     start_time = time.time()
                     constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
                     [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _]], _= loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_ssn_pars, test_data)
                     val_time = time.time() - start_time
                     print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {})'.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
-                    
+                   
                     if epoch%50 ==0 or epoch==1:
                         print('Training accuracy: {}, all losses{}'.format(train_true_acc, epoch_all_losses))
                     
@@ -622,9 +632,9 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
 
     #THIRD STAGE
-    '''
+   
     print('Entering third stage')
-    for epoch in range(final_epoch_2+1, final_epoch_2+2):
+    for epoch in range(final_epoch_2+1, final_epoch_2+10):
         print(epoch)
         train_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
 
@@ -638,7 +648,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
         train_sig_output.append(train_x)
         r_refs.append(train_r_ref)
 
-        
+        '''
         if epoch %10 == 0:
 
                 #Evaluate model 
@@ -655,20 +665,22 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                 if results_filename:
                         save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch = epoch+final_epoch)
                         results_writer.writerow(save_params)
-           
+        '''   
         
         #Update parameters
         updates, readout_state = optimizer.update(grad, readout_state)
         readout_pars = optax.apply_updates(readout_pars, updates)
-        '''
-   
-    if flag==False:
-        epoch_c = [epoch_c, extra_stop, final_epoch_2]
-    #r_refs = np.vstack(np.asarray(r_refs))
-
-    #plot_r_ref(r_refs, epoch_c = epoch_c, save = os.path.join(results_dir+'_noise') )
+        
+    
     save_w_sigs = np.asarray(np.vstack(save_w_sigs))
     plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir+'_w_sig_evolution') )
+    
+    if flag==False:
+        epoch_c = [epoch_c, extra_stop, final_epoch_2]
+    r_refs = np.vstack(np.asarray(r_refs))
+
+    #plot_r_ref(r_refs, epoch_c = epoch_c, save = os.path.join(results_dir+'_noise') )
+    plot_max_rates(r_refs, epoch_c = epoch_c, save= os.path.join(results_dir+'_max_rates'))
    
     return [ssn_layer_pars, readout_pars], np.vstack([val_loss_per_epoch]), all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epoch_c, save_w_sigs
 
@@ -695,6 +707,30 @@ def plot_r_ref(r_ref, epoch_c = None, save=None):
     plt.show()
     plt.close() 
     
+
+def plot_max_rates(max_rates, epoch_c = None, save=None):
+    
+    plt.plot(max_rates, label = ['E_mid', 'I_mid', 'E_sup', 'I_sup'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Maximum rates')
+    plt.legend()
+    
+    if epoch_c==None:
+                pass
+    else:
+        if np.isscalar(epoch_c):
+            
+            plt.axvline(x=epoch_c, c = 'r')
+        else:
+            plt.axvline(x=epoch_c[0], c = 'r')
+            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+            plt.axvline(x=epoch_c[2], c='r')
+    
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close() 
+    
     
     
 
@@ -708,17 +744,16 @@ def loss(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False
         total loss to take gradient with respect to
     '''
     
-    total_loss, all_losses, pred_label, sig_input, x, r_ref = model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = data, debug_flag = debug_flag)
-   
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = data, debug_flag = debug_flag)
     loss= np.mean(total_loss)
     all_losses = np.mean(all_losses, axis = 0)
-    r_ref = np.mean(r_ref, axis = 0)
-
+    #r_ref = np.mean(r_ref, axis = 0)
+    max_rates = [item.max() for item in max_rates]
     true_accuracy = np.sum(data['label'] == pred_label)/len(data['label']) 
     
 
         
-    return loss, [all_losses, true_accuracy, sig_input, x, r_ref]
+    return loss, [all_losses, true_accuracy, sig_input, x, max_rates]
 
 
 
@@ -752,9 +787,8 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     save_params.update(Js)
     save_params['c_E'] = ssn_layer_pars['c_E']
     save_params['c_I'] = ssn_layer_pars['c_I']
-    save_params['f_E'] = np.exp(ssn_layer_pars['f_E'])
-    save_params['f_I'] = np.exp(ssn_layer_pars['f_I'])
-        
+
+    #set_trace()   
     if 'sigma_oris' in ssn_layer_pars.keys():
 
         if len(ssn_layer_pars['sigma_oris']) ==1:
@@ -762,7 +796,10 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
         else:
             sigma_oris = dict(sigma_orisE = np.exp(ssn_layer_pars['sigma_oris'][0]), sigma_orisI = np.exp(ssn_layer_pars['sigma_oris'][1]))
             save_params.update(sigma_oris)
-
+    if 'f_E' in ssn_layer_pars.keys():
+        save_params['f_E'] = f_sigmoid(ssn_layer_pars['f_E'])
+        save_params['f_I'] = f_sigmoid(ssn_layer_pars['f_I'])
+        
     #Add readout parameters
     save_params.update(readout_pars)
 
@@ -771,7 +808,72 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
 
 
 
+def response_matrix(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_E, f_I, constant_ssn_pars, stimuli_pars, radius_list, ori_list, ssn_ori_map):
+    '''
+    Construct a response matrix of sizze n_orientations x n_neurons x n_radii
+    '''
+    #Initialize ssn
 
+    if ssn_ori_map == None:
+        ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_ssn_pars['ssn_pars'], grid_pars=constant_ssn_pars['grid_pars'], conn_pars=constant_ssn_pars['conn_pars_m'], filter_pars=constant_ssn_pars['filter_pars'],  J_2x2=J_2x2_m, gE = constant_ssn_pars['gE'][0], gI=constant_ssn_pars['gI'][0])
+        ssn_ori_map = ssn_mid.ori_map
+    else:
+        ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_ssn_pars['ssn_pars'], grid_pars=constant_ssn_pars['grid_pars'], conn_pars=constant_ssn_pars['conn_pars_m'], filter_pars=constant_ssn_pars['filter_pars'],  J_2x2=J_2x2_m, gE = constant_ssn_pars['gE'][0], gI=constant_ssn_pars['gI'][0], ori_map = ssn_ori_map)
+    
+    ssn_sup=SSN2DTopoV1(ssn_pars=constant_ssn_pars['ssn_pars'], grid_pars=constant_ssn_pars['grid_pars'], conn_pars=constant_ssn_pars['conn_pars_s'], filter_pars=constant_ssn_pars['filter_pars'], J_2x2=J_2x2_s, s_2x2=s_2x2_s, gE = constant_ssn_pars['gE'][1], gI=constant_ssn_pars['gI'][1], sigma_oris = sigma_oris_s, ori_map = ssn_ori_map) 
+    responses = []
+    constant_vector = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
+    constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
+    
+    print('Grating contrast ', stimuli_pars['grating_contrast'])
+    
+    for i in range(len(ori_list)):
+        
+        #Find responses at different stimuli radii
+        x_response = surround_suppression(ssn_mid, ssn_sup, stimuli_pars, constant_ssn_pars['conv_pars'], radius_list, constant_vector, constant_vector_sup, f_E, f_I, ref_ori = ori_list[i])
+        print(x_response.shape)
+        responses.append(x_response)
+    
+    
+    return np.stack(responses, axis = 2)
+
+def surround_suppression(ssn_mid, ssn_sup, stimuli_pars, conv_pars, radius_list, constant_vector, constant_vector_sup, f_E, f_I, ref_ori, title= None):    
+    all_responses = []
+    
+    if ref_ori==None:
+        ref_ori = ssn.ori_map[4,4]
+    
+    print(ref_ori) #create stimuli in the function just input radii)
+    for radii in radius_list:
+        
+        stimuli_pars['outer_radius'] = radii
+        stimuli_pars['inner_radius'] = radii*5/6
+        
+        test_data = create_data(stimuli_pars, number = 1, offset = 2, ref_ori = ref_ori)
+        stimuli = test_data['ref'][0]
+
+        output_ref=np.matmul(ssn_mid.gabor_filters, stimuli) + constant_vector
+        SSN_input_ref = np.maximum(0, output_ref) + constant_vector
+
+        #Find the fixed point 
+        r_ref_mid, _, _ = middle_layer_fixed_point(ssn_mid, SSN_input_ref, conv_pars)
+        sup_input_ref = np.hstack([r_ref_mid*f_E, r_ref_mid*f_I]) + constant_vector_sup
+        
+        r_ref, _, _, fp, _, _= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars, return_fp = True)
+        centre_response = r_ref[int((len(r_ref) - 1)/2)]
+
+        all_responses.append(r_ref.ravel())
+        print('Mean population response {} (max in population {}), centre neurons {}'.format(fp.mean(), fp.max(), r_ref.mean()))
+    
+    if title:
+        plt.plot(radius_list, np.asarray(all_responses))
+        plt.xlabel('Radius')
+        plt.ylabel('Response of centre neuron')
+        if title:
+            plt.title(title)
+        plt.show()
+    
+    return np.vstack(all_responses)
 
 
 
@@ -1232,3 +1334,31 @@ def train_SSN_vmap(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f, w_sig, b_
    
     return opt_pars, val_loss_per_epoch, all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epoch_c, save_w_sigs
 '''
+
+
+
+def evaluate_model_response(ssn_mid, ssn_sup, c_E, c_I, f_E, f_I, conv_pars, train_data):
+    
+    #Create vector using extrasynaptic constants
+    constant_vector = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
+    constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
+    
+    #Apply Gabor filters to stimuli
+    output_mid=np.matmul(ssn_mid.gabor_filters, train_data['ref'])
+    
+    #Rectify output
+    SSN_input = np.maximum(0, output_mid) + constant_vector
+
+    #Find fixed point for middle layer
+    r_ref_mid, _, _ = middle_layer_fixed_point(ssn_mid, SSN_input, conv_pars)
+    
+    #Input to superficial layer
+    sup_input_ref = np.hstack([r_ref_mid*f_E, r_ref_mid*f_I]) + constant_vector_sup
+
+    #Find fixed point for superficial layer
+    r_ref, _, _= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars)
+
+    return r_ref
+
+
+vmap_evalute_response = vmap(evaluate_model_response, in_axes = (None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}) )
