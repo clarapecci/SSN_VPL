@@ -1,6 +1,7 @@
 import jax.numpy as np
 from util import Euler2fixedpt, Euler2fixedpt_fullTmax
 from jax import random
+import numpy
 import matplotlib.pyplot as plt
 
 from util import  find_A, GaborFilter
@@ -285,10 +286,17 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         self.conn_pars = conn_pars
         self._make_maps(grid_pars)
         
-        self.gabor_filters, self.A = self.create_gabor_filters(**filter_pars)
+        edge_deg = filter_pars.edge_deg
+        sigma_g = filter_pars.sigma_g
+        k = filter_pars.k
+        conv_factor =  filter_pars.conv_factor
+        degree_per_pixel = filter_pars.degree_per_pixel
+        
+        self.gabor_filters, self.A = self.create_gabor_filters(edge_deg, k, sigma_g, conv_factor, degree_per_pixel)
         
         if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
-            self.make_W(J_2x2, s_2x2, **conn_pars)
+            #self.make_W(J_2x2, s_2x2, **conn_pars)
+            self.make_W(J_2x2, s_2x2, conn_pars)
 
     @property
     def neuron_params(self):
@@ -429,6 +437,10 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
             sj = 2 *random.randint(key=key, shape=[1,1], minval=0, maxval=2)-1 #random number that's either + or -1.
             key, subkey = random.split(key)
             phij = random.uniform(key, shape=[1,1], minval=0, maxval=1)*2*np.pi
+            
+            
+            #sj = 2 * numpy.random.randint(0, 2)-1 #random number that's either + or -1.
+            #phij = numpy.random.rand()*2*np.pi
 
             tmp = (X*kj[0] + Y*kj[1]) * sj + phij
             z = z + np.exp(1j * tmp)
@@ -478,9 +490,12 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         Output/side-effects:
         self.W
         """
-        conn_pars = locals()
-        conn_pars.pop("self")
-        self.conn_pars = conn_pars
+        #conn_pars = locals()
+        #conn_pars.pop("self")
+        #self.conn_pars = conn_pars
+        PERIODIC = self.conn_pars.PERIODIC
+        p_local = self.conn_pars.p_local
+        sigma_oris - self.conn_pars.sigma_oris
 
         if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
             xy_dist = self.xy_dist

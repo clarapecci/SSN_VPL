@@ -578,6 +578,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
     def _make_distances(self):
         Lx = Ly = self.grid_pars.gridsize_mm
         absdiff_ring = lambda d_x, L: np.minimum(np.abs(d_x), L - np.abs(d_x))
+        cosdiff_ring = lambda d_x, L: np.sqrt(2 * (1 - np.cos(d_x * 2 * np.pi/L))) * L / 2/ np.pi
         PERIODIC = self.conn_pars.PERIODIC
         if PERIODIC:
             absdiff_x = absdiff_y = lambda d_x: absdiff_ring(d_x, Lx + self.grid_pars.dx)
@@ -591,7 +592,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         
         # to generalize the next two lines, can replace 0's with a and b in range(2) (pre and post-synaptic cell-type indices)
         xy_dist = np.sqrt(absdiff_x(xs[0] - xs[0].T)**2 + absdiff_y(ys[0] - ys[0].T)**2)
-        ori_dist = absdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1_ONOFF._Lring)
+        ori_dist = cosdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1_ONOFF._Lring)
         self.xy_dist = xy_dist
         self.ori_dist = ori_dist
 

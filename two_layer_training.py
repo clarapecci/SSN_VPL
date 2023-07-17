@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 import numpy
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
 from SSN_classes_jax_on_only import SSN2DTopoV1
-from util import GaborFilter, BW_Grating, find_A, create_gratings, param_ratios, create_data, take_log
+from util import GaborFilter, BW_Grating, find_A, create_gratings, param_ratios, create_data, take_log, create_stimuli
 from IPython.core.debugger import set_trace
 import util 
 
@@ -79,7 +79,7 @@ def sigmoid(x, epsilon = 0.01):
 def sig(x):
     return 1/(1+np.exp(-x))
 
-def f_sigmoid(x, a = 0.2):
+def f_sigmoid(x, a = 0.):
     return (1-a) + 2*a*sig(x)
 
 
@@ -188,9 +188,10 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     J_2x2_s = sep_exponentiate(logJ_2x2[1])
     s_2x2_s = np.exp(logs_2x2)
     sigma_oris_s = np.exp(sigma_oris)
-    _f_E = f_sigmoid(f_E)
-    _f_I = f_sigmoid(f_I)
-    
+    #_f_E = f_sigmoid(f_E)
+    #_f_I = f_sigmoid(f_I)
+    _f_E = f_E
+    _f_I = f_I
     
     #Initialise network
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE_m, gI=gI_m, ori_map = ssn_mid_ori_map)
@@ -632,7 +633,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
 
     #THIRD STAGE
-   
+    '''
     print('Entering third stage')
     for epoch in range(final_epoch_2+1, final_epoch_2+10):
         print(epoch)
@@ -648,7 +649,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
         train_sig_output.append(train_x)
         r_refs.append(train_r_ref)
 
-        '''
+       
         if epoch %10 == 0:
 
                 #Evaluate model 
@@ -665,12 +666,12 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                 if results_filename:
                         save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch = epoch+final_epoch)
                         results_writer.writerow(save_params)
-        '''   
+           
         
         #Update parameters
         updates, readout_state = optimizer.update(grad, readout_state)
         readout_pars = optax.apply_updates(readout_pars, updates)
-        
+        '''
     
     save_w_sigs = np.asarray(np.vstack(save_w_sigs))
     plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], epoch_c, save = os.path.join(results_dir+'_w_sig_evolution') )
@@ -797,8 +798,10 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
             sigma_oris = dict(sigma_orisE = np.exp(ssn_layer_pars['sigma_oris'][0]), sigma_orisI = np.exp(ssn_layer_pars['sigma_oris'][1]))
             save_params.update(sigma_oris)
     if 'f_E' in ssn_layer_pars.keys():
-        save_params['f_E'] = f_sigmoid(ssn_layer_pars['f_E'])
-        save_params['f_I'] = f_sigmoid(ssn_layer_pars['f_I'])
+        #save_params['f_E'] = f_sigmoid(ssn_layer_pars['f_E'])
+        #save_params['f_I'] = f_sigmoid(ssn_layer_pars['f_I'])
+        save_params['f_E'] = ssn_layer_pars['f_E']
+        save_params['f_I'] = ssn_layer_pars['f_I']
         
     #Add readout parameters
     save_params.update(readout_pars)
@@ -849,8 +852,11 @@ def surround_suppression(ssn_mid, ssn_sup, stimuli_pars, conv_pars, radius_list,
         stimuli_pars['outer_radius'] = radii
         stimuli_pars['inner_radius'] = radii*5/6
         
-        test_data = create_data(stimuli_pars, number = 1, offset = 2, ref_ori = ref_ori)
-        stimuli = test_data['ref'][0]
+        stimuli = create_stimuli(stimuli_pars, ref_ori = ref_ori, number=1, jitter_val = 0)
+        stimuli = stimuli.squeeze()
+        
+        #test_data = create_data(stimuli_pars, number = 1, offset = 2, ref_ori = ref_ori)
+        #stimuli = test_data['ref'][0]
 
         output_ref=np.matmul(ssn_mid.gabor_filters, stimuli) + constant_vector
         SSN_input_ref = np.maximum(0, output_ref) + constant_vector
@@ -877,7 +883,43 @@ def surround_suppression(ssn_mid, ssn_sup, stimuli_pars, conv_pars, radius_list,
 
 
 
+def find_bins(response_matrix, ori_list, save_dir = None):
+    
+    n_neurons = response_matrix.shape[1]
+    if response_matrix.ndim>2:
+        response_matrix = response_matrix[-2, :, :]
+    
+    max_oris = []
+    for i in range(0,n_neurons):
+        #index of ori_list producing max response
+        
+        max_ori_index = np.argmax(response_matrix[i, :])
+        max_oris.append(ori_list[max_ori_index])
+        print(i, ori_list[max_ori_index])
+    ori_list = np.asarray(ori_list)
+    max_oris = np.asarray(max_oris)
+    if save_dir:
+        for i in range(0, len(ori_list)):
+            bin_ori = np.where(max_oris == ori_list[0])
+            np.save(save_dir+str(i)+'.npy', bin_ori)
+    bin_0 = numpy.where(max_oris == ori_list[0])
+    bin_1 = np.where(max_oris == ori_list[1])
+    bin_2 = np.where(max_oris == ori_list[2])
+    bin_3 = np.where(max_oris == ori_list[3])
+    bin_4 = np.where(max_oris == ori_list[4])
+    bin_5 = np.where(max_oris == ori_list[5])
+    bin_6 = np.where(max_oris == ori_list[6])
+    bin_7 = np.where(max_oris == ori_list[7])
+    
+    return [bin_0, bin_1, bin_2, bin_3, bin_4, bin_5, bin_6, bin_7]
 
+
+def bin_response(response_vector, bin_indices, epoch, ori, save_dir):
+   
+    for i in range(0, len(bin_indices)):
+        
+        response_bin = (response_vector[:, np.asarray(bin_indices[i])].squeeze(axis = 1)).mean(axis = 1 )
+        np.save(save_dir+'_bin_'+str(i)+'_epoch_'+str(epoch)+'_ori_'+str(ori)+'.npy', response_bin)
 
 
 
@@ -1344,14 +1386,15 @@ def evaluate_model_response(ssn_mid, ssn_sup, c_E, c_I, f_E, f_I, conv_pars, tra
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
     
     #Apply Gabor filters to stimuli
-    output_mid=np.matmul(ssn_mid.gabor_filters, train_data['ref'])
+    #output_mid=np.matmul(ssn_mid.gabor_filters, train_data['ref'])
+    output_mid=np.matmul(ssn_mid.gabor_filters, train_data)
     
     #Rectify output
     SSN_input = np.maximum(0, output_mid) + constant_vector
 
     #Find fixed point for middle layer
     r_ref_mid, _, _ = middle_layer_fixed_point(ssn_mid, SSN_input, conv_pars)
-    
+
     #Input to superficial layer
     sup_input_ref = np.hstack([r_ref_mid*f_E, r_ref_mid*f_I]) + constant_vector_sup
 
@@ -1361,4 +1404,5 @@ def evaluate_model_response(ssn_mid, ssn_sup, c_E, c_I, f_E, f_I, conv_pars, tra
     return r_ref
 
 
-vmap_evalute_response = vmap(evaluate_model_response, in_axes = (None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}) )
+vmap_evalute_response = vmap(evaluate_model_response, in_axes = (None, None, None, None, None, None, None, 0) )
+#vmap_evalute_response = vmap(evaluate_model_response, in_axes = (None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}) )

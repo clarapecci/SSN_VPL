@@ -11,11 +11,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import jax.numpy as np
 import numpy
+import time
 
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
-from two_layer_training import vmap_evalute_response
-from util import make_J2x2_o
-
+from two_layer_training import vmap_evalute_response, response_matrix, find_bins, bin_response
+from util import load_param_from_csv, create_stimuli
+from pdb import set_trace
 #PARAMETERS
 
 
@@ -29,7 +30,7 @@ offset = 4
 
 #Assemble parameters in dictionary
 general_pars = dict(k=k , edge_deg=3.2,  degree_per_pixel=0.05)
-stimuli_pars = dict(outer_radius=3, inner_radius=2.5, grating_contrast=0.8, std = 0, jitter_val = 5)
+stimuli_pars = dict(outer_radius=3, inner_radius=2.5, grating_contrast=0.8, std = 0)#, jitter_val = 5)
 stimuli_pars.update(general_pars)
 
 #Network parameters
@@ -83,51 +84,92 @@ class loss_pars:
     lambda_w = 1
     lambda_b = 1
     
+
+
+    
 init_set_m ='C'
 init_set_s=1
 _, s_2x2_s, gE_s, gI_s, conn_pars_s  = init_set_func(init_set_s, conn_pars_s, ssn_pars)
 _, _, gE_m, gI_m, conn_pars_m  = init_set_func(init_set_m, conn_pars_m, ssn_pars, middle = True)
+gE = [gE_m, gE_s]
+gI = [gI_m, gI_s]
 
-epochs_to_analyse = np.linspace(1001, 2000, 11).astype(int)
+
+#epochs_to_analyse = np.linspace(1001, 2000, 11).astype(int)
+epochs_to_analyse = np.linspace(215, 1215, 11).astype(int)
 oris_to_analyse = np.asarray([55, 125, 0])
 
 
 
-#Results filename
-results_filename = '/mnt/d/ABG_Projects_Backup/ssn_modelling/ssn-simulator/results/19-06/training/set_C_sig_noise_1.5_batch50_lamw1eta_0.01_results.csv'
+#Results to READ filename
+results_filename = '/mnt/d/ABG_Projects_Backup/ssn_modelling/ssn-simulator/results/19-06/training/cos_reparam_f/set_C_sig_noise_1.0_batch50_lamw1eta_0.001_results.csv'
+#results_filename = '/home/cp661/code/ABL/results/set_C_sig_noise_1.5_batch50_lamw1eta_0.01_results.csv'
 all_results = pd.read_csv(results_filename, header = 0)
 ssn_ori_map_loaded = np.load(os.path.join(os.getcwd(), 'ssn_map.npy'))
 
+#Results to WRITE filename
 
-##############LOOP START #################
+saving_dir = os.path.join(os.getcwd(), 'results', '26-06', 'analysis_1000')
+
+if os.path.exists(saving_dir) == False:
+        os.makedirs(saving_dir)
+
+#Specify results filename
+run_dir = os.path.join(saving_dir, 'response_vec')
+
+
+
+constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m = conn_pars_m, conn_pars_s =conn_pars_s , gE =gE, gI = gI, filter_pars = filter_pars, conv_pars = conv_pars, loss_pars = loss_pars)
+############## START #################
+
+#Find tuning curves
+ori_list = np.linspace(10, 167.5, 8)
+radius_list = np.asarray([3])
+
+#Get parameters from csv file
+
+J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris = load_param_from_csv(all_results, epoch = 0)
+
+epoch_0_response_matrix_0 = response_matrix(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f_E, f_I, constant_ssn_pars, stimuli_pars, radius_list, ori_list, ssn_ori_map_loaded)
+
+bin_indices = find_bins(epoch_0_response_matrix_0, ori_list)
+
+general_pars = dict(k=k , edge_deg=3.2,  degree_per_pixel=0.05)
+stimuli_pars = dict(outer_radius=3, inner_radius=2.5, grating_contrast=0.8, std = 0)#, jitter_val = 5)
+stimuli_pars.update(general_pars)
+start_time = time.time()
+train_data = create_stimuli(stimuli_pars, ref_ori = 10, number = 10, jitter_val = 5)
+data_time = time.time() - start_time
+print('Data created outside loop', data_time)
 
 
 for epoch in epochs_to_analyse:
     
-    #Get parameters from csv file
-    epoch_params = all_results.loc[all_results['epoch'] == epoch]
-    J_m = [epoch_params[i].values[0] for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
-    J_s = [epoch_params[i].values[0] for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
-    c_E = epoch_params['c_E'].values[0]
-    c_I = epoch_params['c_I'].values[0]
-    f_E = epoch_params['f_E'].values[0]
-    f_I = epoch_params['f_I'].values[0]
-    sigma_oris = np.asarray([epoch_params['sigma_orisE'].values[0], epoch_params['sigma_orisI'].values[0]])
-    
-    J_2x2_m = make_J2x2_o(*J_m)
-    J_2x2_s = make_J2x2_o(*J_s)
+    J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris = load_param_from_csv(all_results, epoch = epoch)
     
     #Initialise SSN layers
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE_m, gI=gI_m, ori_map = ssn_ori_map_loaded)
     ssn_sup=SSN2DTopoV1(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_s, filter_pars=filter_pars, J_2x2=J_2x2_s, s_2x2=s_2x2_s, gE = gE_s, gI=gI_s, sigma_oris = sigma_oris, ori_map = ssn_mid.ori_map)
 
     for ori in oris_to_analyse:
+        print(epoch, ori)
+        general_pars = dict(k=k , edge_deg=3.2,  degree_per_pixel=0.05)
+        stimuli_pars = dict(outer_radius=3, inner_radius=2.5, grating_contrast=0.8, std = 0)#, jitter_val = 5)
+        stimuli_pars.update(general_pars)
+        start_time = time.time()
+        train_data = create_stimuli(stimuli_pars, ref_ori = ori, number = 1000, jitter_val = 5)
+        data_time = time.time() - start_time
+        print('Data created', data_time)
         
-        train_data = create_data(stimuli_pars, number = 2, offset = offset, ref_ori = ref_ori)
+        start_time = time.time()
+        response_vector = vmap_evalute_response(ssn_mid, ssn_sup, c_E, c_I, f_E, f_I, conv_pars, train_data)
+        data_time = time.time() - start_time
+        print('vector created', data_time)
         
-        responses = vmap_evalute_response(ssn_mid, ssn_sup, c_E, c_I, f_E, f_I, conv_pars, train_data)
-        np.save(
-        
+        start_time = time.time()
+        bin_response(response_vector = response_vector, bin_indices= bin_indices, epoch = epoch, ori = ori, save_dir = run_dir)
+        data_time = time.time() - start_time
+        print('responses binned', data_time)
         
 
     

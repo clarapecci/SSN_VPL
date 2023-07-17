@@ -340,7 +340,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
 
     if init_set ==1:
         Js0 = [1.82650658, 0.68194475, 2.06815311, 0.5106321]
-        gE, gI = 0.37328625, 0.26144141
+        gE, gI = 0.37328625*1.5, 0.26144141*1.5
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -370,7 +370,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI = 0.5,0.5
+        gE, gI = 0.5, 0.5
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -545,6 +545,7 @@ class JiaGrating:
       
 
     def image(self):
+       
         x, y = numpy.mgrid[-self.grating_size:self.grating_size+1., -self.grating_size:self.grating_size+1.]
 
         d = self.grating_size * 2 + 1
@@ -608,7 +609,6 @@ class BW_Grating(JiaGrating):
         pixel_per_degree=1/degree_per_pixel
         size=int(edge_deg*2 *pixel_per_degree) + 1
         spatial_frequency = k*degree_per_pixel
-        
         
                 
         super().__init__( ori_deg, size, outer_radius, inner_radius, pixel_per_degree, grating_contrast, phase, jitter, std, spatial_frequency)
@@ -1067,3 +1067,33 @@ def recursively_load_dict_contents_from_group(h5file, path):
 
 
 
+def load_param_from_csv(results_filename, epoch):
+    
+    all_results = pd.read_csv(results_filename, header = 0)
+    epoch_params = all_results.loc[all_results['epoch'] == epoch]
+    
+    J_m = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
+    J_s = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
+    c_E = epoch_params['c_E'].values[0]
+    c_I = epoch_params['c_I'].values[0]
+    f_E = epoch_params['f_E'].values[0]
+    f_I = epoch_params['f_I'].values[0]
+    sigma_oris = np.asarray([epoch_params['sigma_orisE'].values[0], epoch_params['sigma_orisI'].values[0]])
+
+    J_2x2_m = make_J2x2_o(*J_m)
+    J_2x2_s = make_J2x2_o(*J_s)
+    
+    return J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris
+
+def create_stimuli(stimuli_pars, ref_ori, number = 10, jitter_val = 5):
+
+    all_stimuli = []
+
+    for i in range(0, number):
+        jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
+
+        #create reference grating
+        ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+        all_stimuli.append(ref)
+    
+    return np.vstack([all_stimuli])
