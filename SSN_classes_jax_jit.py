@@ -108,6 +108,7 @@ class _SSN_Base(object):
         return -1j*omega * np.diag(self.tau_x_vec) - DCjacob
 
    ######## USE IN FIXED POINT FUNCTION #################
+    
     def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False, save=None):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
@@ -149,7 +150,7 @@ class _SSN_Base(object):
 
         return noise_sigsq, spatl_filt
     
-    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
+    #s@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8), device = jax.devices()[1])
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
         
         Nmax = int(Tmax/dt)
@@ -961,3 +962,4 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
     def make_local_W(self, J_2x2):
         #self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
         self.W = np.kron(np.eye(2), np.asarray(J_2x2))
+        
