@@ -79,9 +79,19 @@ def sigmoid(x, epsilon = 0.01):
 def sig(x):
     return 1/(1+np.exp(-x))
 
-def f_sigmoid(x, a = 0.):
-    return (1-a) + 2*a*sig(x)
-
+def f_sigmoid(x, a = 0.75, const = 1.25):
+    return (const-a) + 2*a*sig(x)
+    
+def f_transforms(_f_E, _f_I):
+    f_E = np.exp(_f_I)*f_sigmoid(_f_E)
+    f_I = np.exp(_f_I)
+    
+    #individual reparam
+    #f_I = f_sigmoid(_f_I, const = 1, a = 0.5)
+    #f_E = f_sigmoid(_f_E, const = 2, a = 0.5
+    
+    return f_E, f_I
+    
 
 def binary_loss(n, x):
     return - (n*np.log(x) + (1-n)*np.log(1-x))
@@ -187,16 +197,13 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     J_2x2_m = sep_exponentiate(logJ_2x2[0])
     J_2x2_s = sep_exponentiate(logJ_2x2[1])
     s_2x2_s = np.exp(logs_2x2)
+    
     sigma_oris_s = np.exp(sigma_oris)
-    #_f_E = f_sigmoid(f_E)
-    #_f_I = f_sigmoid(f_I)
-    _f_E = f_E
-    _f_I = f_I
+    _f_E, _f_I = f_transforms(f_E, f_I)
     
     #Initialise network
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE_m, gI=gI_m, ori_map = ssn_mid_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_s, filter_pars=filter_pars, J_2x2=J_2x2_s, s_2x2=s_2x2_s, gE = gE_s, gI=gI_s, sigma_oris = sigma_oris_s, ori_map = ssn_sup_ori_map)
-
     
     #Create vector using extrasynaptic constants
     constant_vector = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
@@ -214,7 +221,6 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
     r_ref_mid, r_max_ref_mid, avg_dx_ref_mid, _, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_mid, SSN_input_ref, conv_pars, return_fp = True)
     r_target_mid, r_max_target_mid, avg_dx_target_mid = middle_layer_fixed_point(ssn_mid, SSN_input_target, conv_pars)
     
- 
     #Input to superficial layer
     sup_input_ref = np.hstack([r_ref_mid*_f_E, r_ref_mid*_f_I]) + constant_vector_sup
     sup_input_target = np.hstack([r_target_mid*_f_E, r_target_mid*_f_I]) + constant_vector_sup
@@ -256,10 +262,6 @@ def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris,
 
 
     return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
-
-
-
-
 
 
 jitted_model = jax.jit(_new_model, static_argnums = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25], device = jax.devices()[0])
@@ -502,6 +504,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
 
         #Save the parameters given a number of epochs
         if epoch in epochs_to_save:
+            
             #Evaluate model 
             test_data = create_data(stimuli_pars, number = test_size, offset = offset, ref_ori = ref_ori)
             
@@ -582,7 +585,6 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, c_E, c_I, f_
                 #Compute loss and gradient
                 constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = w_sig.shape[0])
                 [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data, debug_flag)
-
                 all_losses = np.hstack((all_losses, epoch_all_losses))
                 training_losses.append(epoch_loss)
                 train_accs.append(train_true_acc)
@@ -798,10 +800,10 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
             sigma_oris = dict(sigma_orisE = np.exp(ssn_layer_pars['sigma_oris'][0]), sigma_orisI = np.exp(ssn_layer_pars['sigma_oris'][1]))
             save_params.update(sigma_oris)
     if 'f_E' in ssn_layer_pars.keys():
-        #save_params['f_E'] = f_sigmoid(ssn_layer_pars['f_E'])
-        #save_params['f_I'] = f_sigmoid(ssn_layer_pars['f_I'])
-        save_params['f_E'] = ssn_layer_pars['f_E']
-        save_params['f_I'] = ssn_layer_pars['f_I']
+        save_params['f_E'], save_params['f_I']  = f_transforms(_f_E = ssn_layer_pars['f_E'], _f_I = ssn_layer_pars['f_I'])
+        
+
+        
         
     #Add readout parameters
     save_params.update(readout_pars)
