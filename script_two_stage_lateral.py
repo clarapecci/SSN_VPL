@@ -25,6 +25,7 @@ from jax.lib import xla_bridge
 print("jax backend {}".format(xla_bridge.get_backend().platform))
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
 from SSN_classes_jax_on_only import SSN2DTopoV1
+from pdb import set_trace
 
 import util
 from util import take_log, init_set_func
@@ -115,9 +116,17 @@ J_2x2_m, _, gE_m, gI_m, conn_pars_m  = init_set_func(init_set_m, conn_pars_m, ss
 gE = [gE_m, gE_s]
 gI = [gI_m, gI_s]
 print('g s', gE, gI)
-sigma_oris = np.asarray([45.0, 45.0])
-sigma_pre = np.asarray([50.0, 50.0])
-sigma_post = np.asarray([50.0, 50.0])
+
+option =1
+if option == 2:
+    sigma_oris = np.asarray([[90.0, 90.0], [90.0, 90.0]])
+    kappa_pre = np.asarray([[ 0.0, 0.0], [0.0, 0.0]])
+    kappa_post = np.asarray([[ 0.0, 0.0], [0.0, 0.0]])
+
+if option == 1:
+    sigma_oris = np.asarray([90.0, 90.0])
+    kappa_pre = np.asarray([ 0.0, 0.0])
+    kappa_post = np.asarray([ 0.0, 0.0])
 
 #Excitatory and inhibitory constants for extra synaptic GABA
 c_E = 5.0
@@ -134,7 +143,7 @@ N_neurons = 25
 print(J_2x2_s, J_2x2_m)
 
 #Readout later
-
+'''
 w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.32006381e-02,
   2.59337798e-02, -4.07500396e-04,  2.88240220e-02,  1.46174524e-03,
  -1.32988971e-02, -3.61239421e-03,  6.57914279e-05, -1.17886653e-02,
@@ -142,7 +151,7 @@ w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.320063
  -5.64075832e-04,  3.58234299e-03, -1.59664568e-03,  1.00693129e-01,
  -8.73062983e-02, -1.87561601e-01,  1.21363625e-01,  2.78673577e-03,
   1.95321068e-03])
-'''
+
 
 w_sig = np.asarray([-0.04467659,  0.0311383 ,  0.03057568,  0.00045344,
               0.01791583,  0.09311003, -0.10766725,  0.04019434,
@@ -153,11 +162,11 @@ w_sig = np.asarray([-0.04467659,  0.0311383 ,  0.03057568,  0.00045344,
               0.05182353])
 '''
 
+
+
+
+w_sig= numpy.random.normal(size = (N_neurons,)) / np.sqrt(N_neurons)
 print(np.std(w_sig))
-
-
-#w_sig= numpy.random.normal(size = (N_neurons,)) / np.sqrt(N_neurons)
-
 b_sig =0.0
 
 
@@ -191,20 +200,20 @@ constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '17-07', 'lateral')
+results_dir = os.path.join(home_dir, 'results', '04-09', 'lateral')
 
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
 
 #Specify results filename
-run_dir = os.path.join(results_dir, 'set_'+str(init_set_m)+'_sig_noise_'+str(sig_noise)+'_batch'+str(batch_size)+'_lamw'+str(loss_pars.lambda_w)+'eta_'+str(eta))
+run_dir = os.path.join(results_dir, 'set_'+str(init_set_m)+'_sig_noise_'+str(sig_noise)+'_batch'+str(batch_size)+'_lamw'+str(loss_pars.lambda_w)+'opt_'+str(option))
 
 #results_filename = None
 results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training_lateral.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, sigma_pre, sigma_post, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training_lateral.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, kappa_pre, kappa_post, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
 
 print('new_pars ', ssn_layer_pars, readout_pars )
 

@@ -3,6 +3,7 @@ import util
 from jax import random
 from functools import partial
 import numpy
+from pdb import set_trace
 import jax
 
 from util import  find_A, GaborFilter
@@ -112,7 +113,7 @@ class _SSN_Base(object):
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-
+        
         r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save)
        
         #else:
@@ -131,7 +132,7 @@ class _SSN_Base(object):
         return xvec, CONVG
     
     
-    @partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
+    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
         
         Nmax = int(Tmax/dt)
@@ -444,7 +445,7 @@ class _SSN_AMPAGABA_Base(_SSN_Base):
 class SSN2DTopoV1(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, ssn_pars, grid_pars, conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, ori_map=None, **kwargs):
+    def __init__(self, ssn_pars, grid_pars, conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, ori_map=None, train_ori = None, kappa_post = None, kappa_pre = None, **kwargs):
         Ni = Ne = grid_pars.gridsize_Nx**2
         n=ssn_pars.n
         self.k=ssn_pars.k
@@ -457,6 +458,7 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
+        self.train_ori = train_ori
         self._make_retinmap()
         
         if ori_map==None:
@@ -476,6 +478,7 @@ class SSN2DTopoV1(_SSN_Base):
         
         self.A=ssn_pars.A
         
+        
 
         
         #if A==None:
@@ -486,7 +489,11 @@ class SSN2DTopoV1(_SSN_Base):
         #if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
             
             #self.make_W(J_2x2, s_2x2, **conn_pars)
-        self.make_W(J_2x2, s_2x2, sigma_oris)
+     
+        if kappa_post!=None:
+            self.W = self.make_new_W(J_2x2, s_2x2, sigma_oris, kappa_pre, kappa_post)
+        else:
+            self.W = self.make_W(J_2x2, s_2x2, sigma_oris)
 
     @property
     def neuron_params(self):
@@ -640,6 +647,8 @@ class SSN2DTopoV1(_SSN_Base):
         PERIODIC = self.conn_pars.PERIODIC
         Lx = Ly = self.grid_pars.gridsize_mm
         absdiff_ring = lambda d_x, L: np.minimum(np.abs(d_x), L - np.abs(d_x))
+        #Prevent kink in function
+        cosdiff_ring = lambda d_x, L: np.sqrt(2 * (1 - np.cos(d_x * 2 * np.pi/L))) * L / 2/ np.pi
         if PERIODIC:
             absdiff_x = absdiff_y = lambda d_x: absdiff_ring(d_x, Lx + self.grid_pars.dx)
         else:
@@ -650,9 +659,14 @@ class SSN2DTopoV1(_SSN_Base):
         
         # to generalize the next two lines, can replace 0's with a and b in range(2) (pre and post-synaptic cell-type indices)
         xy_dist = np.sqrt(absdiff_x(xs[0] - xs[0].T)**2 + absdiff_y(ys[0] - ys[0].T)**2)
-        ori_dist = absdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1._Lring)
+        ori_dist = cosdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1._Lring)
+        if self.train_ori!=None:
+            trained_ori_dist = cosdiff_ring(oris[0] - self.train_ori, SSN2DTopoV1._Lring) #NEW - calculate distance to trained orientation
+            self.trained_ori_dist = trained_ori_dist.squeeze()
+            
         self.xy_dist = xy_dist
         self.ori_dist = ori_dist
+        
 
         return xy_dist, ori_dist  
 
@@ -696,12 +710,16 @@ class SSN2DTopoV1(_SSN_Base):
             p_local = np.asarray(p_local) * np.ones(2)
 
         Wblks = [[1,1],[1,1]]
+        
+
         # loop over post- (a) and pre-synaptic (b) cell-types
         for a in range(2):
             for b in range(2):
                 if b == 0: # E projections
                     W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2))
+                
                 elif b == 1: # I projections
+                
                     W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2))
 
                 if Jnoise > 0: # add some noise
@@ -735,11 +753,121 @@ class SSN2DTopoV1(_SSN_Base):
 
                 Wblks[a][b] = J_2x2[a, b] * W
 
-        self.W = np.block(Wblks)
-        #return self.W
+        W = np.block(Wblks)
+        return W
     
     
-    
+    def make_new_W(self, J_2x2, s_2x2, sigma_oris, kappa_pre, kappa_post, Jnoise=0,
+                Jnoise_GAUSSIAN=True, MinSyn=1e-4, CellWiseNormalized=False,
+                                                        PERIODIC=True): #, prngKey=0):
+            """
+            make the full recurrent connectivity matrix W
+            In:
+             J_2x2 = total strength of weights of different pre/post cell-type
+             s_2x2 = ranges of weights between different pre/post cell-type
+             p_local = relative strength of local parts of E projections
+             sigma_oris = range of wights in terms of preferred orientation difference
+            Output/side-effects:
+            self.W
+            """
+            #conn_pars = locals()
+            #conn_pars.pop("self")
+            #self.conn_pars = conn_pars
+
+          
+            PERIODIC = self.conn_pars.PERIODIC
+            p_local = self.conn_pars.p_local
+
+            if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
+                xy_dist = self.xy_dist
+                ori_dist = self.ori_dist
+                trained_ori_dist = self.trained_ori_dist
+            else:
+                xy_dist, ori_dist = self._make_distances()
+            
+            #Reshape sigma_oris
+            if np.shape(sigma_oris) == (1,): sigma_oris = sigma_oris * np.ones((2,2))
+            elif np.shape(sigma_oris) == (2,): sigma_oris = np.ones((2,1)) * np.array(sigma_oris)
+            
+            #Reshape kappa pre
+            if np.shape(kappa_pre) == (1,): kappa_pre = kappa_pre * np.ones((2,2))
+            elif np.shape(kappa_pre) == (2,): kappa_pre = np.ones((2,1)) * np.array(kappa_pre) 
+            
+            #Reshape kappa post
+            if np.shape(kappa_post) == (1,): kappa_post = kappa_post * np.ones((2,2))
+            elif np.shape(kappa_post) == (2,): kappa_post = np.ones((2,1)) * np.array(kappa_post) 
+            
+
+            if np.isscalar(s_2x2):
+                s_2x2 = s_2x2 * np.ones((2,2))
+            else:
+                assert s_2x2.shape == (2,2)
+
+            if np.isscalar(p_local) or len(p_local) == 1:
+                p_local = np.asarray(p_local) * np.ones(2)
+
+            #Create empty matrix
+            Wblks = [[1,1],[1,1]]
+            
+            # loop over post- (a) and pre-synaptic (b) cell-types
+          
+            for a in range(2):
+                for b in range(2):
+                    '''
+                    if b == 0: # E projections
+                        W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2) -trained_ori_dist[:, None]**2/(2*sigma_post[a]**2) -trained_ori_dist[None,:]**2/(2*sigma_pre[b]**2) )
+
+                    elif b == 1: # I projections
+                        W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2) -trained_ori_dist[:, None]**2/(2*sigma_post[a]**2) -trained_ori_dist[None,:]**2/(2*sigma_pre[b]**2 )) 
+                    ''' 
+                    
+                    if b == 0: # E projections
+                        W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2) - kappa_post[a,b]*trained_ori_dist[:, None]**2/2 /45**2  -kappa_pre[a,b]*trained_ori_dist[None,:]**2/2/45**2 )
+
+                    elif b == 1: # I projections 
+                        W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2) -kappa_post[a,b] * trained_ori_dist[:, None]**2/2/45**2  -kappa_pre[a,b]*trained_ori_dist[None,:]**2/2/45**2)
+
+
+
+                    if Jnoise > 0: # add some noise
+                        if Jnoise_GAUSSIAN:
+                            ##JAX CHANGES##
+                            #jitter = np.random.standard_normal(W.shape)
+                            key = random.PRNGKey(87)
+                            key, subkey=random.split(key)
+                            jitter = random.normal(key, W.shape)
+                        else:
+                            ##JAX CHANGES##
+                           #jitter = 2* np.random.random(W.shape) - 1
+                            key = random.PRNGKey(87)
+                            key, subkey=random.split(key)
+                            jitter = 2* random.uniform(key, W.shape) - 1
+                        W = (1 + Jnoise * jitter) * W
+
+                    # sparsify (set small weights to zero)
+                    W = np.where(W < MinSyn, 0, W) # what's the point of this if not using sparse matrices
+
+                    # row-wise normalize
+                    tW = np.sum(W, axis=1)
+                    if not CellWiseNormalized:
+                        tW = np.mean(tW)
+                        W =  W / tW
+                    else:
+                        W = W / tW[:, None]
+
+                    # for E projections, add the local part
+                    # NOTE: alterntaively could do this before adding noise & normalizing
+                    if b == 0:
+                        W = p_local[a] * np.eye(*W.shape) + (1-p_local[a]) * W
+
+                    Wblks[a][b] = J_2x2[a, b] * W
+            
+            
+            W = np.block(Wblks)
+            return W
+            
+
+        
     def create_gabor_filters(self):
     
         e_filters=[] #array of filters
@@ -783,7 +911,7 @@ class SSN2DTopoV1(_SSN_Base):
         return output
     
     
-    @partial(jax.jit, static_argnums = (0, 2, 3))
+    #@partial(jax.jit, static_argnums = (0, 2, 3))
     def apply_bounding_box(self, vec, size = 3.2, select='E'):
 
         map_vec = self.select_type(vec, select)
@@ -909,3 +1037,7 @@ class SSN2DTopoV1(_SSN_Base):
 '''    
 class SSN2DTopoV1_AMPAGABA(SSN2DTopoV1, _SSN_AMPAGABA_Base):
     pass
+
+
+
+    

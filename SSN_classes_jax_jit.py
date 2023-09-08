@@ -52,6 +52,7 @@ class _SSN_Base(object):
         return  self.k * np.maximum(0,u)**self.n
 
     def drdt(self, r2, inp_vec):
+        set_trace()
         out = ( -r2 + self.powlaw(self.W @ r2 + inp_vec) ) / self.tau_vec
         return out
 
@@ -60,7 +61,6 @@ class _SSN_Base(object):
         Compared to self.drdt allows for inp_vec and r to be
         matrices with arbitrary shape[1]
         """
-
         return (( -r + self.powlaw(self.W @ r + inp_vec) ).T / self.tau_vec ).T
 
     def dxdt(self, x, inp_vec):
@@ -110,6 +110,7 @@ class _SSN_Base(object):
    ######## USE IN FIXED POINT FUNCTION #################
     
     def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False, save=None):
+
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
@@ -118,7 +119,8 @@ class _SSN_Base(object):
         r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, save=save)
 
         return r_fp, CONVG, avg_dx
-    
+
+############################################################    
     def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None, print_dt = False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
@@ -150,7 +152,7 @@ class _SSN_Base(object):
 
         return noise_sigsq, spatl_filt
     
-    #s@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8), device = jax.devices()[1])
+    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8), device = jax.devices()[1])
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
         
         Nmax = int(Tmax/dt)
@@ -634,6 +636,8 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         
         elif np.shape(sigma_oris) == (2,): sigma_oris = np.ones((2,1)) * np.array(sigma_oris) 
         
+        
+        
         if np.isscalar(p_local) or len(p_local) == 1:
             p_local = np.asarray(p_local) * np.ones(2)
             
@@ -955,6 +959,7 @@ class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
         
 
     def drdt(self, r, inp_vec):
+
         r1 = np.reshape(r, (-1, self.Nc))
         out = ( -r + self.powlaw(np.ravel(self.W @ r1) + inp_vec) ) / self.tau_vec
         return out

@@ -120,8 +120,10 @@ c_E = 5.0
 c_I = 5.0
 
 #Feedforwards connections
-f_E = 2.0
-f_I = 1.0
+#f_E = 2.0
+#f_I = 1.0
+param_f_E = 0.693
+param_f_I = 0.0
 #Sigmoid parameters
 N_neurons = 25
 
@@ -129,6 +131,7 @@ print(J_2x2_s, J_2x2_m)
 
 #Readout later
 
+'''
 w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.32006381e-02,
   2.59337798e-02, -4.07500396e-04,  2.88240220e-02,  1.46174524e-03,
  -1.32988971e-02, -3.61239421e-03,  6.57914279e-05, -1.17886653e-02,
@@ -136,7 +139,7 @@ w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.320063
  -5.64075832e-04,  3.58234299e-03, -1.59664568e-03,  1.00693129e-01,
  -8.73062983e-02, -1.87561601e-01,  1.21363625e-01,  2.78673577e-03,
   1.95321068e-03])
-'''
+
 
 w_sig = np.asarray([-0.04467659,  0.0311383 ,  0.03057568,  0.00045344,
               0.01791583,  0.09311003, -0.10766725,  0.04019434,
@@ -146,8 +149,8 @@ w_sig = np.asarray([-0.04467659,  0.0311383 ,  0.03057568,  0.00045344,
               0.00960739, -0.048269  ,  0.09633252,  0.0830293 ,
               0.05182353])
 '''
-
-print(np.std(w_sig))
+w_sig= numpy.random.normal(scale = 0.25, size = (N_neurons)) / np.sqrt(N_neurons)
+print(w_sig)
 
 
 #w_sig= numpy.random.normal(size = (N_neurons,)) / np.sqrt(N_neurons)
@@ -166,8 +169,8 @@ ssn_ori_map = np.load(os.path.join(os.getcwd(), 'ssn_map.npy'))
 
 #######################TRAINING PARAMETERS #############################
 
-epochs = 1000
-num_epochs_to_save = 101
+epochs = 5
+num_epochs_to_save =3
 
 epochs_to_save =  np.insert((np.unique(np.linspace(1 , epochs, num_epochs_to_save).astype(int))), 0 , 0)
 
@@ -186,7 +189,7 @@ constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '13-07', 'training', 'f_E2', 'sigma_oris_45')
+results_dir = os.path.join(home_dir, 'results', '04-09', 'test_notlateral')
 
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
@@ -199,7 +202,7 @@ results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, f_E, f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
 
 print('new_pars ', ssn_layer_pars, readout_pars )
 
