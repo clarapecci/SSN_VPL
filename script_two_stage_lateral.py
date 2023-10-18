@@ -23,17 +23,17 @@ import numpy
 
 from jax.lib import xla_bridge
 print("jax backend {}".format(xla_bridge.get_backend().platform))
-from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
+#from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
+from SSN_classes_phases import SSN2DTopoV1_ONOFF_local
 from SSN_classes_jax_on_only import SSN2DTopoV1
 from pdb import set_trace
 
 import util
-from util import take_log, init_set_func
+from util import take_log, init_set_func, load_param_from_csv
 
 from analysis import findRmax, plot_losses, plot_losses_two_stage,  plot_results_two_layers, param_ratios_two_layer, plot_sigmoid_outputs, plot_training_accs
-import two_layer_training_lateral
+from two_layer_training_lateral_phases import new_two_stage_training
 import numpy
-#jax.config.update("jax_enable_x64", True)
 
 #jax.config.update("jax_debug_nans", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
@@ -62,8 +62,11 @@ class ssn_pars():
     tauI = 10 # in ms~
     psi = 0.774
     A=None
+    A2 = None
     tau_s = np.array([5, 7, 100]) #in ms, AMPA, GABA, NMDA current decay time constants
-    
+    phases = 2
+
+
 
 #Grid parameters
 class grid_pars():
@@ -84,10 +87,11 @@ class conn_pars_s():
 
         
 class filter_pars():
-    sigma_g = numpy.array(0.5)
+    #sigma_g = numpy.array(0.5)
+    sigma_g = numpy.array(0.39*0.5/1.04)
     conv_factor = numpy.array(2)
     k = numpy.array(1.0471975511965976)
-    edge_deg = numpy.array( 3.2)
+    edge_deg = numpy.array(3.2)
     degree_per_pixel = numpy.array(0.05)
     
 class conv_pars:
@@ -117,6 +121,7 @@ gE = [gE_m, gE_s]
 gI = [gI_m, gI_s]
 print('g s', gE, gI)
 
+
 option =1
 if option == 2:
     sigma_oris = np.asarray([[90.0, 90.0], [90.0, 90.0]])
@@ -127,6 +132,7 @@ if option == 1:
     sigma_oris = np.asarray([90.0, 90.0])
     kappa_pre = np.asarray([ 0.0, 0.0])
     kappa_post = np.asarray([ 0.0, 0.0])
+
 
 #Excitatory and inhibitory constants for extra synaptic GABA
 c_E = 5.0
@@ -142,7 +148,7 @@ N_neurons = 25
 
 print(J_2x2_s, J_2x2_m)
 
-#Readout later
+#Readout layer
 '''
 w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.32006381e-02,
   2.59337798e-02, -4.07500396e-04,  2.88240220e-02,  1.46174524e-03,
@@ -153,35 +159,32 @@ w_sig = np.asarray([ 1.65255964e-02, -2.02851743e-02,  1.47125358e-03,  4.320063
   1.95321068e-03])
 
 
-w_sig = np.asarray([-0.04467659,  0.0311383 ,  0.03057568,  0.00045344,
-              0.01791583,  0.09311003, -0.10766725,  0.04019434,
-              0.04202819, -0.03946787, -0.02907836,  0.0293383 ,
-             -0.00775917, -0.01200267, -0.02961951,  0.02872184,
-             -0.05024109, -0.01084556,  0.02031561,  0.02439974,
-              0.00960739, -0.048269  ,  0.09633252,  0.0830293 ,
-              0.05182353])
+
+
+w_sig = np.asarray([ 0.4519042,  -0.02115496,  0.05314326, -0.14217392, -0.16658263, -0.5546542,
+  0.02221329,  0.29740822, -0.09600326,  0.15671073,  0.21883038,  0.507749,
+  0.21715987, -0.11094959, -0.20170973, -0.07022153,  0.14825046,  0.13876419,
+  0.04127577, -0.00633835, -0.07955679,  0.12325492,  0.12932943,  0.11152767,
+  0.191855  ])
 '''
-
-
-
-
 w_sig= numpy.random.normal(size = (N_neurons,)) / np.sqrt(N_neurons)
+
 print(np.std(w_sig))
 b_sig =0.0
 
-
+#Calculate find A and save
 ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE_m, gI=gE_s)
 ssn_pars.A = ssn_mid.A
-print('mid W ', ssn_mid.W[:2, :2])
+if ssn_pars.phases==4:
+    ssn_pars.A2 = ssn_mid.A2
 
 
 #Load orientation map
-ssn_ori_map = np.load(os.path.join(os.getcwd(), 'ssn_map.npy'))
-
+ssn_ori_map = np.load(os.path.join(os.getcwd(), 'ssn_map_uniform_good.npy'))
 #######################TRAINING PARAMETERS #############################
 
-epochs = 1000
-num_epochs_to_save = 101
+epochs = 5
+num_epochs_to_save = 3
 
 epochs_to_save =  np.insert((np.unique(np.linspace(1 , epochs, num_epochs_to_save).astype(int))), 0 , 0)
 
@@ -200,20 +203,23 @@ constant_ssn_pars = dict(ssn_pars = ssn_pars, grid_pars = grid_pars, conn_pars_m
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '04-09', 'lateral')
+results_dir = os.path.join(home_dir, 'results', '16-10', 'phases_'+str(ssn_pars.phases)+'k_'+str(filter_pars.k)+'sigma_g'+str(sigma_g)+'gE_'+str(gE_m))
 
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
 
 #Specify results filename
-run_dir = os.path.join(results_dir, 'set_'+str(init_set_m)+'_sig_noise_'+str(sig_noise)+'_batch'+str(batch_size)+'_lamw'+str(loss_pars.lambda_w)+'opt_'+str(option))
+run_dir = os.path.join(results_dir,'set_'+str(init_set_m)+'_sig_noise_'+str(sig_noise)+'_batch'+str(batch_size)+'_lamw'+str(loss_pars.lambda_w))
 
 #results_filename = None
 results_filename = os.path.join(run_dir+'_results.csv')
 
 ########### TRAINING LOOP ########################################
+#Gauss curves training
+#[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, kappa_pre, kappa_post, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= two_layer_training_lateral.new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, kappa_pre, kappa_post, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars, stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
+#Phases training
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epoch_c, save_w_sigs= new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris, kappa_pre, kappa_post, c_E, c_I, param_f_E, param_f_I, w_sig, b_sig, constant_ssn_pars,  stimuli_pars, epochs_to_save, results_filename = results_filename, batch_size=batch_size, ref_ori = ref_ori, offset = offset, epochs=epochs, eta=eta, sig_noise = sig_noise, noise_type=noise_type, results_dir = run_dir, extra_stop = 2, ssn_ori_map = ssn_ori_map)
 
 print('new_pars ', ssn_layer_pars, readout_pars )
 
@@ -242,8 +248,5 @@ plot_training_accs(training_accs, epoch_c = epoch_c, save = training_accs_dir)
 #histogram_dir =os.path.join(run_dir+'_histogram')    
 #two_layer_training.test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, save=histogram_dir, number_trials = 20, batch_size = 500)
 
-#b two_layer_training.py:440, debug_flag==True
-#b two_layer_training.py:349, debug_flag==True
-#b two_layer_training.py:403, debug_flag==True
-#util.save_h5(os.path.join(os.getcwd(), 'results', '24-04', 'dict_epoch_c'), readout_pars)
+
 
