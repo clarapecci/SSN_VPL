@@ -22,9 +22,9 @@ import time
 from torch.utils.data import DataLoader
 import numpy
 from util import create_gratings
-from two_layer_training import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point
-from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
+from two_layer_training_lateral import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point, model, generate_noise
 from SSN_classes_jax_on_only import SSN2DTopoV1
+from matplotlib.colors import hsv_to_rgb
 
 def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False, s_2x2 = None):
     
@@ -249,6 +249,16 @@ def param_ratios(results_file):
         sigma_oris = results[["sigma_orisE", "sigma_orisI"]]
         sigma_oris = sigma_oris.to_numpy()
         print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
+        
+    if 'kappa_preE' in results.columns:
+        kappa_pre = results[["kappa_preE", "kappa_preI"]]
+        kappa_pre = kappa_pre.to_numpy()
+        print("kappa_pre ratios = ", np.array((kappa_pre[-1,:]/kappa_pre[0,:] -1)*100, dtype=int))
+    
+    if 'kappa_postE' in results.columns:
+        kappa_post = results[["kappa_postE", "kappa_postI"]]
+        kappa_post = kappa_post.to_numpy()
+        print("kappa_post ratios = ", np.array((kappa_post[-1,:]/kappa_post[0,:] -1)*100, dtype=int))
     
     if 'sigma_oris' in results.columns:
         sigma_oris = results[["sigma_oris"]]
@@ -264,42 +274,42 @@ def param_ratios_two_layer(results_file):
     if 'J_EE_m' in results.columns:
         Js = results[['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
         Js = Js.to_numpy()
-        print("J_m ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100, dtype=int))
+        print("J_m ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100))
     
     if 'J_EE_s' in results.columns:
         Js = results[['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
         Js = Js.to_numpy()
-        print("J_s ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100, dtype=int))
+        print("J_s ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100))
         
     if 's_EE_m' in results.columns:
         ss = results[['s_EE_m', 's_EI_m', 's_IE_m', 's_II_m']]
         ss = ss.to_numpy()
-        print("s_m ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
+        print("s_m ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100,))
     
     if 's_EE_s' in results.columns:
         ss = results[['s_EE_s', 's_EI_s', 's_IE_s', 's_II_s']]
         ss = ss.to_numpy()
-        print("s_s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
+        print("s_s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100))
     
     if 'c_E' in results.columns:
         cs = results[["c_E", "c_I"]]
         cs = cs.to_numpy()
-        print("c ratios = ", np.array((cs[-1,:]/cs[0,:] -1)*100, dtype=int))
+        print("c ratios = ", np.array((cs[-1,:]/cs[0,:] -1)*100))
         
     if 'sigma_orisE' in results.columns:
         sigma_oris = results[["sigma_orisE", "sigma_orisI"]]
         sigma_oris = sigma_oris.to_numpy()
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
+        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100))
     
     if 'sigma_oris' in results.columns:
         sigma_oris = results[["sigma_oris"]]
         sigma_oris = sigma_oris.to_numpy()
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
+        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100))
         
     if 'f_E' in results.columns:
         fs = results[["f_E", "f_I"]]
         fs = fs.to_numpy()
-        print("f ratios = ", np.array((fs[-1,:]/fs[0,:] -1)*100, dtype=int))
+        print("f ratios = ", np.array((fs[-1,:]/fs[0,:] -1)*100))
         
     
         
@@ -312,7 +322,13 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_
     fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(10,10))
 
     if 'J_EE_m' in results.columns:
-        results.plot(x='epoch', y=["J_EE_m", "J_EI_m", "J_IE_m", "J_II_m", "J_EE_s", "J_EI_s", "J_IE_s", "J_II_s"], ax=axes[0,0])#, '--')
+        colors = ['tab:blue', 'tab:green', 'tab:orange', 'tab:red']
+        param_list_m = ["J_EE_m", "J_EI_m", "J_IE_m", "J_II_m"]
+        param_list_s = ["J_EE_s", "J_EI_s", "J_IE_s", "J_II_s"]
+        
+        for i in range(4):
+            results.plot(x='epoch', y=param_list_m[i],  linestyle = '-', ax=axes[0,0], c=colors[i])
+            results.plot(x='epoch', y=param_list_s[i],  linestyle = '--', ax=axes[0,0], c=colors[i])
         
         
     if 's_EE_s' in results.columns:
@@ -322,7 +338,33 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_
         results.plot(x='epoch', y=["c_E", "c_I"], ax = axes[1,0])
 
     if 'sigma_orisE' in results.columns:
-        results.plot(x='epoch', y=["sigma_orisE", "sigma_orisI"], ax = axes[0,1])
+        results.plot(x='epoch', y="sigma_orisE", linestyle = '-', ax = axes[0,1], c='tab:blue')
+        results.plot(x='epoch', y="sigma_orisI", linestyle = '--', ax = axes[0,1], c='tab:blue')
+    
+    
+    if 'sigma_orisEE' in results.columns:
+        results.plot(x='epoch', y="sigma_orisEE", linestyle = '-', ax = axes[0,1], c='tab:blue')
+        results.plot(x='epoch', y="sigma_orisEI", linestyle = '--', ax = axes[0,1], c='tab:blue')
+    
+    #option 1 training
+    if 'kappa_preE' in results.columns:
+        colors = ['tab:green', 'tab:orange']
+        param_list_E = ["kappa_preE", "kappa_postE"]
+        param_list_I = ["kappa_preI", "kappa_postI"]
+        
+        for i in range(2):
+            results.plot(x='epoch', y=param_list_E[i],  linestyle = '-', ax=axes[2,1], c=colors[i])
+            results.plot(x='epoch', y=param_list_I[i],  linestyle = '--', ax=axes[2,1], c=colors[i])
+    
+    #option 2 training
+    if 'kappa_preEE' in results.columns:
+        colors = ['tab:green', 'tab:orange']
+        param_list_E = ["kappa_preEE", "kappa_postEE"]
+        param_list_I = ["kappa_preEI", "kappa_postEI"]
+        
+        for i in range(2):
+            results.plot(x='epoch', y=param_list_E[i],  linestyle = '-', ax=axes[2,1], c=colors[i])
+            results.plot(x='epoch', y=param_list_I[i],  linestyle = '--', ax=axes[2,1], c=colors[i])
     
     if 'sigma_oris' in results.columns:
         results.plot(x='epoch', y=["sigma_oris"], ax = axes[0,1])
@@ -609,9 +651,7 @@ def case_2(pre_param, post_param, opt_pars, test_data, type_param = None, index=
     
 
 
-from two_layer_training import create_data, model, generate_noise
-from jax import vmap 
-import numpy
+
 
 
 def vmap_eval_hist(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
@@ -637,7 +677,7 @@ def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag
         losses: size(n_weights, n_stimuli )
         accuracy: size( n_weights)
     '''
-    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None]}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None, 'sigma_oris': None}, {'label': None, 'ref': None, 'target': None}, None))
+    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'sigma_oris': None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None}, {'label': None, 'ref': None, 'target': None}, None))
     losses, true_acc, sig_input, sig_output = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
     
     return losses, true_acc, sig_input, sig_output
@@ -835,18 +875,28 @@ def obtain_regular_indices(ssn, number = 8, test_oris=None):
 
 def plot_vec2map(ssn, fp, save_fig=False):
     
-    fp_E_on = ssn.select_type(fp, select='E_ON').ravel()
-    fp_E_off = ssn.select_type(fp, select='E_OFF').ravel()
-    fp_I_on = ssn.select_type(fp, select='I_ON').ravel()
-    fp_I_off = ssn.select_type(fp, select='I_OFF').ravel()
+
+    if ssn.Ne ==162:
+        
+        fp_E = ssn.select_type(fp, map_number = 1).ravel()
+        fp_I = ssn.select_type(fp, map_number = 2).ravel()
+        titles = ['E', 'I']
+        all_responses = [fp_E,  fp_I]
     
-    titles = ['E_on', 'I_on', 'E_off', 'I_off']
-    all_responses = [fp_E_on,  fp_I_on, fp_E_off,  fp_I_off]
+    if ssn.Ne>162:
+        fp_E_on = ssn.select_type(fp, map_number = 1).ravel()
+        fp_E_off = ssn.select_type(fp, map_number = 3).ravel()
+        fp_I_on = ssn.select_type(fp, map_number = 2).ravel()
+        fp_I_off = ssn.select_type(fp, map_number = 4).ravel()
+        titles = ['E_on', 'I_on', 'E_off', 'I_off']
+        all_responses = [fp_E_on,  fp_I_on, fp_E_off,  fp_I_off]
     
+    rows = int(len(titles)/2)
+    cols =int(len(titles)/rows)
     fig, axes = plt.subplots(2,2, figsize=(8,8))
     count = 0
-    for row in range(0,2):
-        for col in range(0,2):
+    for row in range(0,rows):
+        for col in range(0,cols):
             ax = axes[row, col]
             im = ax.imshow(all_responses[count].reshape(9,9), vmin = fp.min(), vmax = fp.max() )
             ax.set_title(titles[count])
@@ -859,7 +909,7 @@ def plot_vec2map(ssn, fp, save_fig=False):
         fig.savefig(save_fig+'.png')
     
     plt.close()
-    
+  
     
 
 
@@ -961,3 +1011,132 @@ def label_neuron(index):
     
     labels = ['E_ON', 'I_ON', 'E_OFF', 'I_OFF']
     return  labels[int(np.floor(index/81))]
+
+
+
+
+def pre_post_bar_plots(neuron_indices, pre_vec, post_vec, title = None, saving_dir = None):
+    
+    pre_to_plot = np.abs(pre_vec[neuron_indices])
+    post_to_plot = np.abs(post_vec[neuron_indices])
+
+    X = np.arange(len(neuron_indices))
+    fig = plt.figure()
+    ax = fig.add_axes([0,0,1,1])
+    ax.bar(X + 0.00, pre_to_plot, color = 'c', width = 0.25, label='pre')
+    ax.bar(X + 0.25, post_to_plot, color = 'r', width = 0.25, label = 'post')
+    plt.xticks(X, neuron_indices)
+    plt.legend()
+    fig.show()
+    
+    
+def full_width_half_max(vector, d_theta):
+    
+    vector = vector-vector.min()
+    half_height = vector.max()/2
+    points_above = len(vector[vector>half_height])
+   
+
+    distance = d_theta * points_above
+    
+    return distance
+
+
+def sort_neurons(ei_indices, close_far_indices):
+    empty_list = []
+    for i in ei_indices:
+        if i in close_far_indices:
+            empty_list.append(i)
+
+    return np.asarray([empty_list])
+
+
+def close_far_indices(train_ori, ssn):
+    
+    close_indices = []
+    far_indices = []
+    
+    upper_range = train_ori+ 90/2
+    print(upper_range)
+    
+    for i in range(len(ssn.ori_vec)):
+        if 0 < ssn.ori_vec[i] <=upper_range:
+            close_indices.append(i)
+        else: 
+            far_indices.append(i)
+            
+    return np.asarray([close_indices]), np.asarray([far_indices])
+
+def sort_close_far_EI(ssn, train_ori):
+    close, far = close_far_indices(55, ssn)
+    close = close.squeeze()
+    far = far.squeeze()
+    e_indices = np.where(ssn.tau_vec == ssn.tauE)[0]
+    i_indices= np.where(ssn.tau_vec == ssn.tauI)[0]
+    
+    e_close = sort_neurons(e_indices, close)
+    e_far = sort_neurons(e_indices, far)
+    i_close = sort_neurons(i_indices, close)
+    i_far = sort_neurons(i_indices, far)
+    
+    return e_close, e_far, i_close, i_far
+
+
+
+def plot_close_far(E_pre, E_post, I_pre, I_post, e_close, e_far, i_close, i_far, save = None, title=None):
+    
+    #EE
+    E_E_pre_close = [E_pre[e_close].mean(), E_pre[e_close].std()]
+    E_E_post_close = [E_post[e_close].mean(), E_post[e_close].std()]
+    E_E_pre_far = [E_pre[e_far].mean(), E_pre[e_far].std()]
+    E_E_post_far = [E_post[e_far].mean(), E_post[e_far].std()]
+    
+    
+    #IE
+    I_E_pre_close = [E_pre[i_close].mean(), E_pre[i_close].std()]
+    I_E_post_close = [E_post[i_close].mean(), E_post[i_close].std()]
+    I_E_pre_far = [E_pre[i_far].mean(), E_pre[i_far].std()]
+    I_E_post_far = [E_post[i_far].mean(), E_post[i_far].std()]
+    
+    
+    #EI
+    E_I_pre_close = [np.abs(I_pre[e_close].mean()), np.abs(I_pre[e_close].std())]
+    E_I_post_close = [np.abs(I_post[e_close].mean()), np.abs(I_post[e_close].std())]
+    E_I_pre_far = [np.abs(I_pre[e_far].mean()), np.abs(I_pre[e_far].std())]
+    E_I_post_far = [np.abs(I_post[e_far].mean()), np.abs(I_post[e_far].std())]
+    
+    #II
+    I_I_pre_close = [np.abs(I_pre[i_close].mean()), np.abs(I_pre[i_close].std())]
+    I_I_post_close = [np.abs(I_post[i_close].mean()), np.abs(I_post[i_close].std())]
+    I_I_pre_far = [np.abs(I_pre[i_far].mean()), np.abs(I_pre[i_far].std())]
+    I_I_post_far = [np.abs(I_post[i_far].mean()), np.abs(I_post[i_far].std())]
+    
+    pre_close_mean = [E_E_pre_close[0], I_E_pre_close[0], E_I_pre_close[0], I_I_pre_close[0]]
+    post_close_mean = [E_E_post_close[0], I_E_post_close[0], E_I_post_close[0], I_I_post_close[0]]
+    
+    pre_far_mean = [E_E_pre_far[0], I_E_pre_far[0], E_I_pre_far[0], I_I_pre_far[0]]
+    post_far_mean = [E_E_post_far[0], I_E_post_far[0], E_I_post_far[0], I_I_post_far[0]]
+                     
+    pre_close_error = [E_E_pre_close[1], I_E_pre_close[1], E_I_pre_close[1], I_I_pre_close[1]]
+    post_close_error = [E_E_post_close[1], I_E_post_close[1], E_I_post_close[1], I_I_post_close[1]]
+    
+    pre_far_error = [E_E_pre_far[1], I_E_pre_far[1], E_I_pre_far[1], I_I_pre_far[1]]
+    post_far_error= [E_E_post_far[1], I_E_post_far[1], E_I_post_far[1], I_I_post_far[1]]
+    
+    X = np.arange(4)
+    labels = ['EE', 'IE', 'EI', 'II']
+    fig = plt.figure()
+    ax = fig.add_axes([0,0,1,1])
+    ax.bar(X + 0.00, pre_close_mean, color = 'c', width = 0.15, hatch='/', label='pre_close')
+    ax.bar(X + 0.15, post_close_mean, color = 'c', width = 0.15, label = 'post_close')
+    ax.bar(X + 0.30, pre_far_mean, color = 'r', width = 0.15, hatch='/', label = 'pre_far')
+    ax.bar(X + 0.45, post_far_mean, color = 'r', width = 0.15, label = 'post_far')
+    if title:
+        plt.title(title)
+    plt.xticks(X + 0.225, labels)
+    plt.ylabel('Average input')
+    plt.legend()
+    plt.axis('on')
+    if save:
+            plt.savefig(os.path.join(save, title+'.png'))
+    fig.show()

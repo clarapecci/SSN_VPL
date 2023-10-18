@@ -13,6 +13,7 @@ import numpy
 from torch.utils.data import DataLoader
 from numpy.random import binomial
 from pdb import set_trace
+import os
 
 
 
@@ -70,6 +71,8 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
             xplot = np.hstack((xplot, xvec[np.asarray(inds)][:,None]))
             xplot_all=np.hstack((xplot_all, np.sum(xvec)))
             xplot_max.append(xvec.max())
+            
+            #set_trace()
             
         
         
@@ -267,9 +270,6 @@ def toeplitz(c, r=None):
 
 
 
-
-
-
 ### END OF ORIGINAL UTIL ###
 
 def Euler2fixedpt_fullTmax(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=False, inds=None, verbose=True, silent=False):
@@ -361,7 +361,6 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='A':
         Js0 = [2.5, 1.3, 2.4, 1.0]
-        
         gE, gI =  0.4, 0.4
         print(gE, gI)
         sigEE, sigIE = 0.2, 0.40
@@ -370,7 +369,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI = 0.5, 0.5
+        gE, gI = 0.45, 0.45
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -449,6 +448,7 @@ class GaborFilter:
         y_i=np.repeat(self.y_i, self.N_pixels)
         y_i=np.reshape(y_i, (self.N_pixels, 1))
         diff_y=((y_axis - y_i.T))
+        
         spatial=np.cos(self.k*np.pi*2*(diff_x*np.cos(self.theta) + diff_y*np.sin(self.theta)) + self.phase) 
         gaussian= np.exp(-0.5 *( diff_x**2 + diff_y**2)/self.sigma_g**2)
         
@@ -473,6 +473,8 @@ class GaborFilter:
 
             #generate Gabor filter and stimuli at orientation
             gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, degree_per_pixel=self.degree_per_pixel)
+            
+            #CHANGED K HERE
             test_grating=BW_Grating(ori_deg=ori, edge_deg=self.edge_deg, k=self.k, degree_per_pixel=self.degree_per_pixel, outer_radius=self.edge_deg*2, inner_radius=self.edge_deg*2, grating_contrast=0.99)
             test_stimuli=test_grating.BW_image()
 
@@ -508,7 +510,56 @@ class GaborFilter:
         return output
 
     
+### FINDING CONSTANT FOR GABOR FILTERS ###
+def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, phase = 0, return_all=False):
+    '''
+    Find constant to multiply Gabor filters.
+    Input:
+        gabor_pars: Filter parameters - centre already specified in function
+        stimuli_pars: Stimuli parameters (high constrast and spanning all visual field)
+        indices: List of orientatins in degrees to calculate filter and corresponding stimuli
+    Output:
+        A: value of constant so that contrast = 100
+    '''
+    all_A=[]
+    all_gabors=[]
+    all_test_stimuli=[]
     
+    for ori in indices:
+    
+        #generate Gabor filter and stimuli at orientation
+        gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=edge_deg, k=k, sigma_g=sigma_g, degree_per_pixel=degree_per_pixel, phase = phase)
+        test_grating=BW_Grating(ori_deg=ori, edge_deg=edge_deg, k=k, degree_per_pixel=degree_per_pixel, outer_radius=edge_deg*2, inner_radius=edge_deg*2, grating_contrast=0.99, phase = phase)
+        test_stimuli=test_grating.BW_image()
+        
+        mean_removed_filter = gabor.filter - gabor.filter.mean()
+        #multiply filter and stimuli
+        #output_gabor=gabor.filter.ravel()@test_stimuli.ravel()
+        output_gabor=mean_removed_filter.ravel()@test_stimuli.ravel()
+        
+        all_gabors.append(gabor.filter)
+        all_test_stimuli.append(test_stimuli)
+       
+        #calculate value of A
+        A_value=100/(output_gabor) 
+
+        #create list of A
+        all_A.append(A_value)
+    
+    #set_trace()
+    #find average value of A
+    all_A=np.array(all_A)
+    A=all_A.mean()
+
+    all_gabors=np.array(all_gabors)
+    all_test_stimuli=np.array(all_test_stimuli)
+    
+    if return_all==True:
+        output =  A , all_gabors, all_test_stimuli
+    else:
+        output=A
+    
+    return output    
 ##### CREATING GRATINGS ######    
 """
 Author: Samuel Bell (sjb326@cam.ac.uk) 
@@ -677,67 +728,6 @@ def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
     return training_gratings
 
 
-
-
-
-    
-    
-### FINDING CONSTANT FOR GABOR FILTERS ###
-def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, return_all=False):
-    '''
-    Find constant to multiply Gabor filters.
-    Input:
-        gabor_pars: Filter parameters - centre already specified in function
-        stimuli_pars: Stimuli parameters (high constrast and spanning all visual field)
-        indices: List of orientatins in degrees to calculate filter and corresponding stimuli
-    Output:
-        A: value of constant so that contrast = 100
-    '''
-    all_A=[]
-    all_gabors=[]
-    all_test_stimuli=[]
-    
-    for ori in indices:
-    
-        #generate Gabor filter and stimuli at orientation
-        gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=edge_deg, k=k, sigma_g=sigma_g, degree_per_pixel=degree_per_pixel)
-        test_grating=BW_Grating(ori_deg=ori, edge_deg=edge_deg, k=k, degree_per_pixel=degree_per_pixel, outer_radius=edge_deg*2, inner_radius=edge_deg*2, grating_contrast=0.99)
-        test_stimuli=test_grating.BW_image()
-
-        #multiply filter and stimuli
-        output_gabor=np.matmul(gabor.filter.ravel(), test_stimuli.ravel())
-        
-        
-        all_gabors.append(gabor.filter)
-        all_test_stimuli.append(test_stimuli)
-
-
-        #calculate value of A
-        A_value=100/(output_gabor) 
-
-        #create list of A
-        all_A.append(A_value)
-    
-    
-    #find average value of A
-    all_A=np.array(all_A)
-    A=all_A.mean()
-
-    all_gabors=np.array(all_gabors)
-    all_test_stimuli=np.array(all_test_stimuli)
-    
-    if return_all==True:
-        output =  A , all_gabors, all_test_stimuli
-    else:
-        output=A
-    
-    return output
-
-
-
-
-
-
 ## PLOT INITIALIZATION HISTOGRAM
 import numpy
 def vmap_eval2(opt_pars, ssn_pars, grid_pars, conn_pars, test_data, filter_pars,  conv_pars):
@@ -825,6 +815,7 @@ def initial_acc( opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars,  conv_pa
     return all_accuracies, low_acc
 
 
+
 def plot_histograms(all_accuracies):
     
     #n_rows =  int(np.sqrt(len(all_accuracies)))
@@ -864,24 +855,6 @@ def param_ratios(results_file):
     print("s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
     
 
-
-    
-
-def create_data(stimuli_pars, number=100, offset = 5, ref_ori=55):
-    
-    '''
-    Create data for given jitter and noise value for testing (not dataloader)
-    '''
-    train_data = create_gratings(ref_ori=ref_ori, number=number, offset=offset, **stimuli_pars)
-    
-    #train_data = next(iter(DataLoader(data, batch_size=len(data), shuffle=False)))
-    train_data['ref'] = train_data['ref'].numpy()
-    train_data['target'] = train_data['target'].numpy()
-    train_data['label'] = train_data['label'].numpy()
-
-    
-    return train_data
-
 def plot_losses(training_losses, save_file = None):
     plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Total'] )
     plt.legend()
@@ -898,50 +871,6 @@ def ratio_w(new_pars, opt_pars ):
     return np.asarray(all_ratios)
 
 
-
-
-def test_accuracy(stimuli_pars, offset, ref_ori, J_2x2, s_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, loss_pars, sig_noise, noise_type, save=None, number_trials = 20, batch_size = 500, vmap_model = None):
-    '''
-    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
-    Input: 
-        network parameters, number of trials and batch size of each trial
-    Output:
-        histogram of the accuracies 
-    
-    '''
-    if vmap_model ==None:
-        vmap_model = vmap(model, in_axes = (None, None, None, None, None, None, None, None, None, None, None, None, None, {'ref':0, 'target':0, 'label':0}, None, None, None, None, None) )
-    
-    all_accs = []
-    
-    ssn=SSN2DTopoV1_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, gE=gE, gI=gI, sigma_oris=sigma_oris)
-    ssn_ori_map = ssn.ori_map
-    print(ssn_ori_map)
-    print(w_sig[:5])
-    
-    logJ_2x2 =take_log(J_2x2)
-    logs_2x2 = np.log(s_2x2)
-    sigma_oris = np.log(sigma_oris)
-    
-    for i in range(number_trials):
-        
-        testing_data = create_data(stimuli_pars, number = number_trials, offset = offset, ref_ori = ref_ori)
-        
-        _, _, pred_label, _, _ =vmap_model(ssn_ori_map, logJ_2x2, logs_2x2, c_E, c_I, w_sig, b_sig, sigma_oris, ssn_pars, grid_pars, conn_pars, gE, gI, testing_data, filter_pars, conv_pars, loss_pars, sig_noise, noise_type)
-                         
-        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
-        all_accs.append(true_accuracy)
-   
-    plt.hist(all_accs)
-    plt.xlabel('Accuracy')
-    plt.ylabel('Frequency')
-   
-    
-    if save:
-            plt.savefig(save+'.png')
-    
-    plt.show()  
-    plt.close() 
 
     
 #import numpy as np
@@ -1044,12 +973,6 @@ def load(filename,ASLIST=False):
 
 def recursively_load_dict_contents_from_group(h5file, path):
 
-    """
-
-    ....
-
-    """
-
     ans = {}
 
     for key, item in h5file[path].items():
@@ -1067,7 +990,7 @@ def recursively_load_dict_contents_from_group(h5file, path):
 
 
 
-def load_param_from_csv(results_filename, epoch):
+def load_param_from_csv(results_filename, epoch, lateral = False):
     
     all_results = pd.read_csv(results_filename, header = 0)
     epoch_params = all_results.loc[all_results['epoch'] == epoch]
@@ -1083,6 +1006,12 @@ def load_param_from_csv(results_filename, epoch):
     J_2x2_m = make_J2x2_o(*J_m)
     J_2x2_s = make_J2x2_o(*J_s)
     
+    if 'kappa_preE' in all_results.columns:
+        kappa_pre = np.asarray([epoch_params['kappa_preE'].values[0], epoch_params['kappa_preI'].values[0]])
+        kappa_post = np.asarray([epoch_params['kappa_postE'].values[0], epoch_params['kappa_postI'].values[0]])
+        
+        return J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris, kappa_pre, kappa_post
+    
     return J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris
 
 def create_stimuli(stimuli_pars, ref_ori, number = 10, jitter_val = 5):
@@ -1097,3 +1026,25 @@ def create_stimuli(stimuli_pars, ref_ori, number = 10, jitter_val = 5):
         all_stimuli.append(ref)
     
     return np.vstack([all_stimuli])
+
+
+        
+def save_matrices(run_dir, contrast, matrix_sup, matrix_ref):
+    np.save(os.path.join(run_dir+str(contrast)+'sup.npy'), matrix_sup) 
+    np.save(os.path.join(run_dir+str(contrast)+'mid.npy'), matrix_ref) 
+    
+    
+def load_matrix_response(results_dir, layer): 
+    run_dir = os.path.join(results_dir, 'response_matrix_')
+    
+    response_matrix_contrast_02 = np.load(run_dir+'0.2'+str(layer)+'.npy')
+    response_matrix_contrast_04= np.load(run_dir+'0.4'+str(layer)+'.npy')
+    response_matrix_contrast_06 = np.load(run_dir+'0.6'+str(layer)+'.npy')
+    response_matrix_contrast_08 = np.load(run_dir+'0.8'+str(layer)+'.npy')
+    response_matrix_contrast_099 = np.load(run_dir+'0.99'+str(layer)+'.npy')
+    
+    return response_matrix_contrast_02, response_matrix_contrast_04, response_matrix_contrast_06, response_matrix_contrast_08, response_matrix_contrast_099
+
+
+
+####FUNCTIONS IN TRAINING #############
