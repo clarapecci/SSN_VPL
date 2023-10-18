@@ -18,21 +18,16 @@ from torch.utils.data import DataLoader
 import numpy
 from SSN_classes_jax_jit import SSN2DTopoV1_ONOFF_local
 from SSN_classes_jax_on_only import SSN2DTopoV1
-from util import GaborFilter, BW_Grating, find_A, create_gratings, param_ratios, create_data, take_log, create_stimuli
+from util import GaborFilter, BW_Grating, find_A, create_gratings, param_ratios
 from IPython.core.debugger import set_trace
 import util 
-
-
-
 
 def exponentiate(opt_pars):
     signs=np.array([[1, -1], [1, -1]]) 
     J_2x2 =np.exp(opt_pars['logJ_2x2'])*signs
     s_2x2 = np.exp(opt_pars['logs_2x2'])
-
     
-    return J_2x2, s_2x2
-
+    return J_2x2, s_2x2                                                                                                                                                                                                                                                                                                                                                                                                               
 
 def create_data(stimuli_pars, number=100, offset = 5, ref_ori=55):
     
@@ -45,26 +40,7 @@ def create_data(stimuli_pars, number=100, offset = 5, ref_ori=55):
     train_data['target'] = train_data['target'].numpy()
     train_data['label'] = train_data['label'].numpy()
     
-    return train_data
-
-
-def constant_to_vec(c_E, c_I, ssn, sup = False):
-    
-    edge_length = ssn.grid_pars.gridsize_Nx
-
-    matrix_E = np.ones((edge_length, edge_length)) * c_E
-    vec_E = np.ravel(matrix_E)
-    
-    matrix_I = np.ones((edge_length, edge_length))* c_I
-    vec_I = np.ravel(matrix_I)
-    
-    constant_vec = np.hstack((vec_E, vec_I, vec_E, vec_I))
-    
-    if sup:
-        constant_vec = np.hstack((vec_E, vec_I))
-        
-    return constant_vec
-
+    return train_data                                                                                                                                                                                                
 def our_max(x, beta =1):
     max_val = np.log(np.sum(np.exp(x*beta)))/beta
     return max_val
@@ -86,6 +62,7 @@ def f_sigmoid(x, a = 0.75):
 def binary_loss(n, x):
     return - (n*np.log(x) + (1-n)*np.log(1-x))
 
+
 def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=None, print_dt = False):
     
     r_init = np.zeros(ssn_input.shape[0])
@@ -104,30 +81,6 @@ def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=No
     avg_dx = np.maximum(0, (avg_dx -1))
     
     return fp, avg_dx
-
-
-def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
-    
-    fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds, print_dt = print_dt)
-    
-    #Add responses from E and I neurons
-    fp_E_on = ssn.select_type(fp, select='E_ON').ravel()
-    fp_E_off = ssn.select_type(fp, select='E_OFF').ravel()
-    
-    layer_output = fp_E_on + fp_E_off
-    
-    #r_max = np.maximum(0, (our_max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (our_max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (our_max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (our_max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
-    
-    r_max = np.maximum(0, (np.max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (np.max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
-    
-    max_E =  np.maximum(np.max(fp[ssn.Ne:3*int(ssn.Ne/2)]), np.max(fp[:int(ssn.Ne/2)]))
-    max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
-    
-    if return_fp ==True:
-        return layer_output, r_max, avg_dx, fp, max_E, max_I
-    else:
-        return layer_output, r_max, avg_dx
-    
 
 def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
     
@@ -151,8 +104,8 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I 
         return r_box, r_max, avg_dx, fp, max_E, max_I
     else:
         return r_box, r_max, avg_dx
-
-
+    
+    
 def take_log(J_2x2):
     
     signs=np.array([[1, -1], [1, -1]])
@@ -168,7 +121,131 @@ def sep_exponentiate(J_s):
     return new_J
 
 
-#@partial(jax.jit, static_argnums=( 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22), device = jax.devices()[0]) 
+
+def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, sig_noise, save=None, number_trials = 5, batch_size = 5):
+    '''
+    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
+    Input: 
+        network parameters, number of trials and batch size of each trial
+    Output:
+        histogram of accuracies 
+    
+    '''
+    
+    all_accs = []
+        
+    for i in range(number_trials):
+        
+        testing_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
+        
+        constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+        
+        _, _, pred_label, _, _, _=model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = testing_data)
+        
+        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
+        all_accs.append(true_accuracy)
+
+   
+    plt.hist(all_accs)
+    plt.xlabel('Accuracy')
+    plt.ylabel('Frequency')
+   
+    
+    if save:
+            plt.savefig(save+'.png')
+    
+    plt.show()  
+    plt.close() 
+    
+    
+def plot_w_sig(w_sig,  epochs_to_save , epoch_c = None,save=None):
+    
+    plt.plot(w_sig)
+    plt.xlabel('Epoch')
+    plt.ylabel('Values of w')
+    if epoch_c:
+        plt.axvline(x=epoch_c, c='r', label='criterion')
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close()
+    
+
+def generate_noise(constant_ssn_pars, sig_noise,  batch_size, length, noise_type ='poisson'):
+    
+
+    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
+    constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, length))
+    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
+    constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size,length))
+    return constant_ssn_pars
+def constant_to_vec(c_E, c_I, ssn, sup = False):
+    
+    edge_length = ssn.grid_pars.gridsize_Nx
+
+    matrix_E = np.ones((edge_length, edge_length)) * c_E
+    vec_E = np.ravel(matrix_E)
+    
+    matrix_I = np.ones((edge_length, edge_length))* c_I
+    vec_I = np.ravel(matrix_I)
+    
+    constant_vec = np.hstack((vec_E, vec_I, vec_E, vec_I))
+    
+    if sup:
+        constant_vec = np.hstack((vec_E, vec_I))
+        
+    return constant_vec
+
+
+
+def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
+    
+    fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds, print_dt = print_dt)
+    
+    #Add responses from E and I neurons
+    fp_E_on = ssn.select_type_old(fp, select='E_ON').ravel()
+    fp_E_off = ssn.select_type_old(fp, select='E_OFF').ravel()
+    
+    layer_output = fp_E_on + fp_E_off
+    
+    #r_max = np.maximum(0, (our_max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (our_max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (our_max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (our_max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
+    
+    r_max = np.maximum(0, (np.max(fp[:int(ssn.Ne/2)])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[int(ssn.Ne/2):ssn.Ne])/Rmax_I - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:3*int(ssn.Ne/2)])/Rmax_E - 1))+  np.maximum(0, (np.max(fp[3*int(ssn.Ne/2):-1])/Rmax_I - 1))
+    
+    max_E =  np.maximum(np.max(fp[ssn.Ne:3*int(ssn.Ne/2)]), np.max(fp[:int(ssn.Ne/2)]))
+    max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
+    
+    if return_fp ==True:
+        return layer_output, r_max, avg_dx, fp, max_E, max_I
+    else:
+        return layer_output, r_max, avg_dx
+    
+'''
+def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 50, Rmax_I = 100, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
+    
+    #Obtain fixed point
+    fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds)
+
+    #Apply bounding box to data
+    r_box = (ssn.apply_bounding_box(fp, size=3.2)).ravel()
+    
+    #Obtain inhibitory response 
+    if inhibition ==True:
+        r_box_i = ssn.apply_bounding_box(fp, size=3.2, select='I_ON').ravel()
+        r_box = [r_box, r_box_i]
+    
+    r_max = np.maximum(0, (np.max(fp[:ssn.Ne])/Rmax_E - 1)) + np.maximum(0, (np.max(fp[ssn.Ne:-1])/Rmax_I - 1))
+    
+    max_E = np.max(fp[:ssn.Ne])
+    max_I = np.max(fp[ssn.Ne:-1])
+    
+    if return_fp ==True:
+        return r_box, r_max, avg_dx, fp, max_E, max_I
+    else:
+        return r_box, r_max, avg_dx
+'''
+
+
 def _new_model(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, kappa_pre, kappa_post, ssn_mid_ori_map, ssn_sup_ori_map, train_data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, noise_ref, noise_target, noise_type ='poisson', train_ori = 55, debug_flag=False):
     
     '''
@@ -288,8 +365,6 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     c_I = ssn_layer_pars['c_I']
     f_E = ssn_layer_pars['f_E']
     f_I = ssn_layer_pars['f_I']
-    #f_E = constant_ssn_pars['f_E']
-    #f_I = constant_ssn_pars['f_I']
     
     #sigma_oris = constant_ssn_pars['sigma_oris']
     sigma_oris = ssn_layer_pars['sigma_oris']
@@ -319,67 +394,9 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     
     return vmap_model_jit(logJ_2x2, logs_2x2, c_E, c_I, f_E, f_I, w_sig, b_sig, sigma_oris, kappa_pre, kappa_post, ssn_mid_ori_map, ssn_mid_ori_map, data, ssn_pars, grid_pars, conn_pars_m, conn_pars_s, gE_m, gI_m, gE_s, gI_s, filter_pars, conv_pars, loss_pars, noise_ref, noise_target, noise_type, train_ori, debug_flag)
     
-
-
-
-def test_accuracy(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, ref_ori, sig_noise, save=None, number_trials = 5, batch_size = 5):
-    '''
-    Given network parameters, function generates random trials of data and calculates the accuracy per batch. 
-    Input: 
-        network parameters, number of trials and batch size of each trial
-    Output:
-        histogram of accuracies 
     
-    '''
-    
-    all_accs = []
-        
-    for i in range(number_trials):
-        
-        testing_data = create_data(stimuli_pars, number = batch_size, offset = offset, ref_ori = ref_ori)
-        
-        constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = sig_noise,  batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
-        
-        _, _, pred_label, _, _, _=model(ssn_layer_pars = ssn_layer_pars, readout_pars = readout_pars, constant_ssn_pars = constant_ssn_pars, data = testing_data)
-        
-        true_accuracy = np.sum(testing_data['label'] == pred_label)/len(testing_data['label']) 
-        all_accs.append(true_accuracy)
-
-   
-    plt.hist(all_accs)
-    plt.xlabel('Accuracy')
-    plt.ylabel('Frequency')
-   
-    
-    if save:
-            plt.savefig(save+'.png')
-    
-    plt.show()  
-    plt.close() 
-    
-    
-    
-def plot_w_sig(w_sig,  epochs_to_save , epoch_c = None,save=None):
-    
-    plt.plot(w_sig)
-    plt.xlabel('Epoch')
-    plt.ylabel('Values of w')
-    if epoch_c:
-        plt.axvline(x=epoch_c, c='r', label='criterion')
-    if save:
-            plt.savefig(save+'.png')
-    plt.show()
-    plt.close()
     
 
-def generate_noise(constant_ssn_pars, sig_noise,  batch_size, length, noise_type ='poisson'):
-    
-
-    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-    constant_ssn_pars['noise_ref'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size, length))
-    constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-    constant_ssn_pars['noise_target'] =  sig_noise*jax.random.normal(constant_ssn_pars['key'], shape=(batch_size,length))
-    return constant_ssn_pars
     
 
 
@@ -495,7 +512,6 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, k
         train_sig_input.append(train_delta_x)
         train_sig_output.append(train_x)
         r_refs.append(train_r_ref)
- 
         epoch_time = time.time() - start_time
         
 
@@ -587,7 +603,7 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, k
                 train_sig_input.append(train_delta_x)
                 train_sig_output.append(train_x)
                 r_refs.append(train_r_ref)
-               
+
                 #Save the parameters given a number of epochs
                 if epoch in epochs_to_save:
                     
@@ -864,7 +880,7 @@ def response_matrix(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, kappa_po
         inputs.append(SSN_input)
         responses_sup.append(x_response_sup)
         responses_mid.append(x_response_mid)
-    return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2), SSN_input, ssn_mid
+    return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2), np.vstack([inputs]), ssn_mid
 
 
 
