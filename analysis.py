@@ -22,54 +22,11 @@ import time
 from torch.utils.data import DataLoader
 import numpy
 from util import create_gratings
-from two_layer_training_lateral import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point, model, generate_noise
+from two_layer_training_lateral_phases import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point, model, generate_noise
 from SSN_classes_jax_on_only import SSN2DTopoV1
+from SSN_classes_phases import SSN2DTopoV1_ONOFF_local
 from matplotlib.colors import hsv_to_rgb
 
-def find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False, s_2x2 = None):
-    
-    if "logs_2x2" in opt_pars:
-        J_2x2, s_2x2 = exponentiate(opt_pars)
-    else:
-        J_2x2 = exponentiate(opt_pars)
-    
-    constant_vector = constant_to_vec(opt_pars['c_E'], opt_pars['c_I'])
-    
-    ssn=SSN2DTopoV1_AMPAGABA_ONOFF(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars, gE=gE, gI=gI, filter_pars=filter_pars, J_2x2=J_2x2, s_2x2=s_2x2, sigma_oris = opt_pars['sigma_oris'])
-    
-    all_responses_E=[]
-    all_responses_I = []
-    
-    if ref_ori==None:
-        ref_ori = ssn.ori_map[4,4]
-
-    for i in range(0,100):
-        test_data = create_data(stimuli_pars, number = 1, offset = offset, ref_ori = ref_ori)
-        stimuli = test_data['ref'][0]
-
-        output_ref=np.matmul(ssn.gabor_filters, stimuli) + constant_vector
-        SSN_input_ref=np.maximum(0, output_ref)
-
-    #Find the fixed point 
-        x_ref, _, _ = obtain_fixed_point(ssn, SSN_input_ref, conv_pars, inhibition = inhibition)
-        
-        all_responses_E.append(x_ref[0])
-        all_responses_I.append(x_ref[1])
-    
-    return np.asarray(all_responses_E), np.asarray(all_responses_I)
-
-
-
-def findRmax(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition=False):
-    
-    responses = find_response(opt_pars, ssn_pars, grid_pars, conn_pars, gE, gI, filter_pars, conv_pars, stimuli_pars, ref_ori, offset, inhibition)
-
-    Rmax_E = responses[0].max()
-    Rmax_I = responses[1].max()
-    
-    return Rmax_E, Rmax_I
-
-    
 
 def plot_training_accs(training_accs, epoch_c = None, save=None):
     
@@ -268,50 +225,77 @@ def param_ratios(results_file):
         print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
 
         
-def param_ratios_two_layer(results_file):
+def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
     results = pd.read_csv(results_file, header = 0)
+
+    
+    
+    if epoch==None:
+        accuracies = list(results['val_accuracy'][:20].values)
+        count = 9
+        while np.asarray(accuracies).mean()<percent_acc:
+
+            count+=1
+            del accuracies[0]
+            if count>len(results['val_accuracy']):
+                          break
+            else:
+                accuracies.append(results['val_accuracy'][count])
+
+
+        epoch = results['epoch'][count]
+        epoch_index = results[results['epoch'] == epoch].index
+        print(epoch, epoch_index)
+                          
+    if epoch==-1:
+        epoch_index = epoch
+    else:
+        epoch_index = results[results['epoch'] == epoch].index
     
     if 'J_EE_m' in results.columns:
         Js = results[['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
         Js = Js.to_numpy()
-        print("J_m ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100))
+        print("J_m ratios = ", np.array((Js[epoch_index,:]/Js[0,:] -1)*100))
     
     if 'J_EE_s' in results.columns:
         Js = results[['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
         Js = Js.to_numpy()
-        print("J_s ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100))
+        print("J_s ratios = ", np.array((Js[epoch_index,:]/Js[0,:] -1)*100))
         
     if 's_EE_m' in results.columns:
         ss = results[['s_EE_m', 's_EI_m', 's_IE_m', 's_II_m']]
         ss = ss.to_numpy()
-        print("s_m ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100,))
+        print("s_m ratios = ", np.array((ss[epoch_index,:]/ss[0,:] -1)*100,))
     
     if 's_EE_s' in results.columns:
         ss = results[['s_EE_s', 's_EI_s', 's_IE_s', 's_II_s']]
         ss = ss.to_numpy()
-        print("s_s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100))
+        print("s_s ratios = ", np.array((ss[epoch_index,:]/ss[0,:] -1)*100))
     
     if 'c_E' in results.columns:
         cs = results[["c_E", "c_I"]]
         cs = cs.to_numpy()
-        print("c ratios = ", np.array((cs[-1,:]/cs[0,:] -1)*100))
+        print("c ratios = ", np.array((cs[epoch_index,:]/cs[0,:] -1)*100))
         
     if 'sigma_orisE' in results.columns:
         sigma_oris = results[["sigma_orisE", "sigma_orisI"]]
         sigma_oris = sigma_oris.to_numpy()
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100))
+        print("sigma_oris ratios = ", np.array((sigma_oris[epoch_index,:]/sigma_oris[0,:] -1)*100))
     
     if 'sigma_oris' in results.columns:
         sigma_oris = results[["sigma_oris"]]
         sigma_oris = sigma_oris.to_numpy()
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100))
+        print("sigma_oris ratios = ", np.array((sigma_oris[epoch_index,:]/sigma_oris[0,:] -1)*100))
         
     if 'f_E' in results.columns:
         fs = results[["f_E", "f_I"]]
         fs = fs.to_numpy()
-        print("f ratios = ", np.array((fs[-1,:]/fs[0,:] -1)*100))
-        
+        print("f ratios = ", np.array((fs[epoch_index,:]/fs[0,:] -1)*100))
     
+    if 'kappa_preE' in results.columns:
+        kappas = results[['kappa_preE', 'kappa_preI', 'kappa_postE', 'kappa_postI']]
+        kappas = kappas.to_numpy()
+        print('kappas = ', kappas[epoch_index, :])
         
 
 def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_c=None, norm_w=False, param_sum = False):
@@ -677,7 +661,7 @@ def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag
         losses: size(n_weights, n_stimuli )
         accuracy: size( n_weights)
     '''
-    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'sigma_oris': None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None}, {'label': None, 'ref': None, 'target': None}, None))
+    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'kappa_pre': None, 'kappa_post':None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None, 'sigma_oris': None, 'train_ori':None}, {'label': None, 'ref': None, 'target': None}, None))
     losses, true_acc, sig_input, sig_output = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
     
     return losses, true_acc, sig_input, sig_output
@@ -692,7 +676,7 @@ def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_par
 
     readout_pars['w_sig']= numpy.random.normal(scale = 0.25, size = (trials, N_neurons)) / np.sqrt(N_neurons)
 
-    train_data = create_data(stimuli_pars, offset = offset, number=trials)
+    train_data = create_data(stimuli_pars, ref_ori = constant_ssn_pars['train_ori'], offset = offset, number=trials)
     constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = noise, batch_size = len(train_data['ref']), length= readout_pars['w_sig'].shape[1])
                                        
     val_loss, true_acc, sig_input, sig_output = vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data)
@@ -707,7 +691,7 @@ def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_par
     return higher_90, true_acc, readout_pars['w_sig'], sig_input, sig_output
 
 
-def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None, trials=100):
+def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, ref_ori, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None, trials=100):
     '''
     Find initial accuracy for varying jitter and noise levels. 
     
@@ -725,6 +709,8 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, o
     good_w_s=[]
     all_sig_inputs = []
     all_sig_outputs = []
+    constant_ssn_pars['train_ori'] = ref_ori
+            
     
     
     for sig_noise in list_noise:
@@ -1015,18 +1001,24 @@ def label_neuron(index):
 
 
 
-def pre_post_bar_plots(neuron_indices, pre_vec, post_vec, title = None, saving_dir = None):
+def pre_post_bar_plots(neuron_indices, pre_vec, post_vec, yaxis = None, saving_dir = None):
     
     pre_to_plot = np.abs(pre_vec[neuron_indices])
     post_to_plot = np.abs(post_vec[neuron_indices])
 
     X = np.arange(len(neuron_indices))
     fig = plt.figure()
-    ax = fig.add_axes([0,0,1,1])
+    ax = fig.add_axes([0.15,0.15,0.75,0.75])
     ax.bar(X + 0.00, pre_to_plot, color = 'c', width = 0.25, label='pre')
     ax.bar(X + 0.25, post_to_plot, color = 'r', width = 0.25, label = 'post')
     plt.xticks(X, neuron_indices)
+    plt.xlabel('Neuron index')
     plt.legend()
+    plt.axis('on')
+    if yaxis:
+        plt.ylabel(yaxis)
+        if saving_dir:
+            fig.savefig(os.path.join(saving_dir, yaxis+'.jpg'))
     fig.show()
     
     

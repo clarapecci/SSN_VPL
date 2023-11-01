@@ -1,12 +1,15 @@
 import jax.numpy as np
-import util
 from jax import random
-from functools import partial
-import numpy
-from pdb import set_trace
+import matplotlib.pyplot as plt
 import jax
+from jax import jit
+from functools import partial
+from pdb import set_trace
+import numpy
 
-from util import find_A,   GaborFilter
+
+from util import find_A, GaborFilter
+import util
 
 class _SSN_Base(object):
     def __init__(self, n, k, Ne, Ni, tau_vec=None, W=None):
@@ -15,11 +18,7 @@ class _SSN_Base(object):
         self.Ne = Ne
         self.Ni = Ni
         self.N = self.Ne + self.Ni
-        #original code - not jax compatible
-        #self.EI = np.chararray((self.N,), itemsize=1)
-        #self.EI[:Ne] = b"E"
-        #self.EI[Ne:] = b"I"
-        
+
         ## JAX CHANGES ##
         self.EI=[b"E"]*(self.Ne) + [b"I"]*(self.N - self.Ne)
         self.condition= np.array([bool(self.EI[x]==b"E") for x in range(len(self.EI))])
@@ -52,11 +51,11 @@ class _SSN_Base(object):
     def powlaw(self, u):
         return  self.k * np.maximum(0,u)**self.n
 
-    def drdt(self, r, inp_vec):
+    def drdt(self, r2, inp_vec):
+        out = ( -r2 + self.powlaw(self.W @ r2 + inp_vec) ) / self.tau_vec
+        return out
 
-        return ( -r + self.powlaw(self.W @ r + inp_vec) ) / self.tau_vec
-
-    def drdt_multi(self, r, inp_vec):
+    def drdt_multi(self, r, inp_vec, print_dt = False):
         """
         Compared to self.drdt allows for inp_vec and r to be
         matrices with arbitrary shape[1]
@@ -107,32 +106,52 @@ class _SSN_Base(object):
             DCjacob = self.DCjacobian(r)
         return -1j*omega * np.diag(self.tau_x_vec) - DCjacob
 
+   ######## USE IN FIXED POINT FUNCTION #################
+    
     def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False, save=None):
+
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        
-        r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save)
-       
-        #else:
-        #    return r_fp
+        r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, save=save)
+
         return r_fp, CONVG, avg_dx
-    
-    
+
+############################################################    
     def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None, print_dt = False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
+        print('Inp vec shape ', inp_vec.shape)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        xvec, CONVG  = util.Euler2fixedpt(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
+        xvec, CONVG = util.Euler2fixedpt(dxdt=drdt, x_initial=r_init, Tmax=Tmax, dt=dt, xtol=xtol, PLOT=PLOT, save=save, inds=inds)
 
         return xvec, CONVG
+
+    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
+        
+        if x_init is None:
+            x_init = np.zeros((self.dim,))
+        dxdt = lambda x : self.dxdt(x, inp_vec)
+        x_fp, CONVG = util.Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol, PLOT)
+        if not CONVG:
+            print('Did not reach fixed point.')
+        #else:
+        #    return x_fp
+        return x_fp, CONVG
+
+    def make_noise_cov(self, noise_pars):
+        # the script assumes independent noise to E and I, and spatially uniform magnitude of noise
+        noise_sigsq = np.hstack( (noise_pars.stdevE**2 * np.ones(self.Ne),
+                                  noise_pars.stdevI**2 * np.ones(self.Ni)) )
+        spatl_filt = np.array(1)
+
+        return noise_sigsq, spatl_filt
     
-    
-    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8))
+    #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8), device = jax.devices()[1])
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
         
         Nmax = int(Tmax/dt)
@@ -189,28 +208,10 @@ class _SSN_Base(object):
                     plt.savefig(save+'.png')
             plt.show()
             plt.close()
-
+        
+        
         return xvec, CONVG, avg_dx
 
-    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
-        if x_init is None:
-            x_init = np.zeros((self.dim,))
-        dxdt = lambda x : self.dxdt(x, inp_vec)
-        x_fp, CONVG = Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol=xtol, PLOT=PLOT)
-        if not CONVG:
-            print('Did not reach fixed point.')
-        #else:
-        #    return x_fp
-        return x_fp, CONVG
-
-    def make_noise_cov(self, noise_pars):
-        # the script assumes independent noise to E and I, and spatially uniform magnitude of noise
-        noise_sigsq = np.hstack( (noise_pars.stdevE**2 * np.ones(self.Ne),
-                                  noise_pars.stdevI**2 * np.ones(self.Ni)) )
-        spatl_filt = np.array(1)
-
-        return noise_sigsq, spatl_filt
-    
     
 class _SSN_AMPAGABA_Base(_SSN_Base):
     """
@@ -340,162 +341,86 @@ class _SSN_AMPAGABA_Base(_SSN_Base):
         return ( -np.eye(self.num_rcpt * self.N) +
                 np.tile( self.Wrcpt * Phi[None,:] , (1, self.num_rcpt)) ) # broadcasting so that gain (Phi) varies by 2nd (presynaptic) neural index, and does not depend on receptor type or post-synaptic (1st) neural index
 
+#################################################
+class SSNUniform(_SSN_Base):
+    def __init__(self, n, k, tauE, tauI, Jee, Jei, Jie, Jii,
+                                                Ne, Ni=None, **kwargs):
+        Ni = Ni if Ni is not None else Ne
+        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
+        # W = np.block([[Jee/Ne * np.ones((Ne,Ne)), -Jei/Ni * np.ones((Ne,Ni))],
+        #               [Jie/Ne * np.ones((Ni,Ne)), -Jii/Ni * np.ones((Ni,Ni))],])
+        # since np.block not yet implemented in jax.numpy:
+        W = np.vstack(
+            [np.hstack([Jee/Ne * np.ones((Ne,Ne)), -Jei/Ni * np.ones((Ne,Ni))]),
+             np.hstack([Jie/Ne * np.ones((Ni,Ne)), -Jii/Ni * np.ones((Ni,Ni))])])
 
-    def linear_power_spect(self, r_fp, noise_pars, freq_range, fnums, e_LFP,
-                               gamma_range=[20,100], EIGS=False, EIGVECS=False):
-        """
-        Returns the power spectrum/a (PS) of "LFP" recorded on 1 or MULTIPLE
-        "electrodes" or probes, in the noise-driven multi-synaptic SSN, in a
-        SINGLE stimulus condition, by linearizing in noise around the noise-free
-        fixed point for that stimulus. (The stimulus condition is specified
-        by its fixed point "r_fp".)
-        LFP is approximated as the total-input into neurons, averaged over a
-        group of neurons according to columns of "e_LFP" which provide the
-        averaging weights. Different columns of "e_LFP" correspond to different
-        probes. Averaging would be accurate if all column-sums of e_LFP are 1.
-        Also, since electrophysiologically, LFP corresponds to averaged input
-        to Pyramidal cells, it's more biological if e_LFP is only zero
-        on inhibitory rows.
-        Other inputs:
-        freq_range: two-element seq, specifying min and max freq's (in Hz)
-                    over which PS is calculated.
-        fnums: number of frequency grid-points to evaluate PS on in above range.
-        gamma_range: min and max freq's (in Hz) of gamma-range, used for
-                     calcualting total gamma power(s).
-        e_LFP: shape = (N, n_probes), with each N-dim column being the projection
-               or signature vector for a single LFP probe
-        EIGS: if True, the dynamical Jacobian and its eigenvalues at "r_fp" are
-              calculated.
-        noise_pars: specifies parameters of noise. Following fields are used
-                    (example values are what I had used for the SSNHomogRing model):
-                noise_pars.stdevE = 1.5; Std of E noise
-                noise_pars.stdevI = 1.5; Std of E noise
-                noise_pars.corr_time = 5; correlation time of noise in ms
-                noise_pars.corr_length = 0.5; correlation length of noise in angles; 0 doesn't work well..: too small response
-                noise_pars.NMDAratio = 0; % of external noise fed to the NMDA channel (the rest goes to AMPA)
-        example usage:
-        powspecs = ssn.linear_power_spect(r_fp, high_levels.NoisePars(), freq_range=[10,100], fnums=50, e_LFP)
-        # where powspecs.shape = (e_LFP.shape[1], fnums) or, if e_LFP.ndims==1, (fnums,).
-        """
-        noise_sigsq, spatl_filt = self.make_noise_cov(noise_pars)
-        tau_corr = noise_pars.corr_time  /1000 # convert to seconds
-        noiseNMDA = 0 if self.num_rcpt<3 else noise_pars.NMDAratio
-        tau_s = np.diag(self.tau_s_vec) /1000 # convert to seconds
+        super(SSNUniform, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
+                                    tau_vec=tau_vec, W=W, **kwargs)
 
-        J = self.DCjacobian(r_fp)
+    @property
+    def neuron_params(self):
+        return dict(n=self.n, k=self.k,
+                    tauE=self.tau_vec[0], tauI=self.tau_vec[self.Ne])
 
-        ones_rcpt = np.ones(self.num_rcpt)
-        if e_LFP.ndim > 1 and e_LFP.shape[1] > 1:  # case of many different LFP probes (stacked along 2nd axis of e_LFP)
-            ones_rcpt = ones_rcpt[:, None]
-            noise_sigsq = noise_sigsq[:, None]
-        e_LFP1 = np.kron(ones_rcpt, e_LFP) # this tensor product by ones(...) is because of the unweighted sum of currents of different types inside the neuronal nonlinearity
+# ==========================  2 neuron models ==================================
 
-        # calculate LFP power spectrum/a:
-        fs = np.linspace(*freq_range,fnums) # grid of frequencies in Hz
+class SSN_2D(SSNUniform):
+    def __init__(self, n, k, tauE, tauI, Jee, Jei, Jie, Jii, **kwargs):
+        super(SSN_2D, self).__init__(n, k, tauE, tauI, Jee, Jei, Jie, Jii,
+                                        Ne=1, Ni=1, **kwargs)
+##############################################################        
 
-        ws = 2*np.pi * fs # angular freq's (omega's) in Hz
-        LFP_spectra = []
-        for w in ws:
-            vecE = np.linalg.solve( (-1j*w * tau_s - J).T.conj() , e_LFP1) # self.inv_G(w,J).T.conj() @ e_LFP1
-
-            # ASSUME noise is only coming thru AMPA and NMDA channels (first and last N inds, resp)
-            # AND both channels get same exact realization of noise, up to scaling (so noise cov is rank-deficient, with rank ssn.N instead of ssn.dim)
-            vecE1 = (1-noiseNMDA) * vecE[:self.N]  + noiseNMDA * vecE[-self.N:]
-            # account for spatial correlations in noise input
-            if spatl_filt.size > 1:
-                vecE = spatl_filt.T  @ vecE1
-                vecE1 = vecE
-            # power-spec of pink noise with time-constant tau_corr and variance 1, which is 2*\tau /abs(-i\omega*\tau + 1)^2 (FT of exp(-|t|/tau))
-            noise_spect = 2* tau_corr/np.abs(-1j*w * tau_corr + 1)**2 # in Hz^{-1}
-
-            LFP_spectra.append( np.sum(vecE1.conj() * (noise_sigsq * vecE1), axis=0) * noise_spect )
-
-        # *2 to combine (the symmetric) power across positive and negative freq's:
-        LFP_spectra = 2 * np.real(np.asarray(LFP_spectra))
-
-        # calculate gamma power(s)
-        df = fs[1]-fs[0]
-        gamma_powers = np.sum(LFP_spectra[(gamma_range[0]<fs) & (fs<gamma_range[1])], axis=0) * df
-
-        # calculate Jacobian and its eigenvalues
-        if EIGS:
-            Jacob = self.jacobian(J) # np.kron(1/self.tau_s, np.ones(self.N))[:,None] * J  # equivalent to diag(tau_s) J (math)
-            if EIGVECS:
-                JacobLams = np.linalg.eig(Jacob)
-            else:
-                JacobLams = np.linalg.eigvals(Jacob)
-        else:
-            Jacob = JacobLams = None
-
-        return LFP_spectra.T, fs, gamma_powers, JacobLams, Jacob
-
-        # # using numba compiled code:
-        # Jacob = None if not EIGS else self.jacobian(J) # np.kron(1/ssn.tau_s, np.ones(ssn.N))[:,None] * J  # equivalent to diag(tau_s) J (math)
-        # shp = (len(fs),) if e_LFP1.ndim == 1 else (len(fs), e_LFP1.shape[1])
-        # return SSN_power_spec.linear_power_spect_loop(self.N, fs, 0*1j + e_LFP1, shp,
-        #                         J, noise_sigsq, spatl_filt, noiseNMDA, tau_s,
-        #                         tau_corr, np.asarray(gamma_range), EIGS, 0*1j + Jacob)
-
-
-
-        
-        
-
-# =========================== 2D topographic models ============================
-class SSN2DTopoV1(_SSN_Base):
+class SSN2DTopoV1_ONOFF(_SSN_Base):
     _Lring = 180
 
-    def __init__(self, ssn_pars, grid_pars, conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, ori_map=None, train_ori = None, kappa_post = None, kappa_pre = None, **kwargs):
-        Ni = Ne = grid_pars.gridsize_Nx**2
+    def __init__(self, ssn_pars, grid_pars,  conn_pars, filter_pars, J_2x2, gE, gI, sigma_oris =None, s_2x2 = None, ori_map = None, number_phases = 2, **kwargs):
+        self.Nc = grid_pars.gridsize_Nx**2 #number of columns
+        Ni = Ne = 2 * self.Nc 
+        
         n=ssn_pars.n
-        self.k=ssn_pars.k
+        k=ssn_pars.k
         tauE= ssn_pars.tauE
-        tauI=ssn_pars.tauI
         self.tauE = tauE
         self.tauI = tauI
-        tau_vec = np.hstack([tauE * np.ones(Ne), tauI * np.ones(Ni)])
-
-        super(SSN2DTopoV1, self).__init__(n=n, k=self.k, Ne=Ne, Ni=Ni,
+        tauI=ssn_pars.tauI
+        self.phases = ssn_pars.phases
+        tau_vec = np.hstack([tauE * np.ones(self.Nc), tauI * np.ones(self.Nc)])
+        tau_vec = np.kron(np.array([1,1]), tau_vec )
+        tau_s=ssn_pars.tau_s
+        
+  
+        super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=k, Ne=Ne, Ni=Ni,
                                     tau_vec=tau_vec, **kwargs)
-
+        
         self.grid_pars = grid_pars
         self.conn_pars = conn_pars
-        self.train_ori = train_ori
         self._make_retinmap()
         
         if ori_map==None:
             self.ori_map = self._make_orimap()
         else:
             self.input_ori_map(ori_map)
-
-            
+        
         self.gE, self.gI = gE, gI
+        
 
-   
+       
         self.edge_deg = filter_pars.edge_deg
         self.sigma_g = filter_pars.sigma_g
-        self.k_filt = filter_pars.k
+        self.k = filter_pars.k
         self.conv_factor =  filter_pars.conv_factor
         self.degree_per_pixel = filter_pars.degree_per_pixel
         
         self.A=ssn_pars.A
-        
-        
 
+        #Create Gabor filters
+        self.gabor_filters, self.A = self.create_gabor_filters()
         
-        #if A==None:
-           # self.gabor_filters, self.A = self.create_gabor_filters(edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE, gI)
-        #if A:
-          #  self.gabor_filters, self.A = self.create_gabor_filters(edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE, gI, A)
+            
         
         #if conn_pars is not None: # conn_pars = None allows for ssn-object initialization without a W
             
-            #self.make_W(J_2x2, s_2x2, **conn_pars)
-     
-        if kappa_post!=None:
-            self.W = self.make_new_W(J_2x2, s_2x2, sigma_oris, kappa_pre, kappa_post)
-        else:
-            self.W = self.make_W(J_2x2, s_2x2, sigma_oris)
+        self.make_W(J_2x2, s_2x2, sigma_oris)
 
     @property
     def neuron_params(self):
@@ -553,11 +478,18 @@ class SSN2DTopoV1(_SSN_Base):
     def vec2map(self, vec):
         assert vec.ndim == 1
         Nx = self.grid_pars.gridsize_Nx
-        if len(vec) == self.Ne:
+        if len(vec) == self.Nc:
             map = np.reshape(vec, (Nx, Nx))
+        elif len(vec) == self.Ne:
+            map = (np.reshape(vec[:self.Nc], (Nx, Nx)),
+                   np.reshape(vec[self.Nc:], (Nx, Nx)))
         elif len(vec) == self.N:
-            map = (np.reshape(vec[:self.Ne], (Nx, Nx)),
-                   np.reshape(vec[self.Ne:], (Nx, Nx)))
+            map = (np.reshape(vec[:self.Nc], (Nx, Nx)),
+                   np.reshape(vec[self.Nc:self.Nc*2], (Nx, Nx)),
+                   np.reshape(vec[self.Nc*2:self.Nc*3], (Nx, Nx)),
+                   np.reshape(vec[self.Nc*3:], (Nx, Nx)))
+            
+       
         return map
 
     def _make_maps(self, grid_pars=None):
@@ -570,6 +502,12 @@ class SSN2DTopoV1(_SSN_Base):
         self._make_orimap()
 
         return self.x_map, self.y_map, self.ori_map
+    
+    def input_ori_map(self, ori_map):
+        self.ori_map= ori_map
+        self.ori_vec = np.tile(self.ori_map.ravel(), (self.phases*2,))
+        self._make_distances()
+        self._make_retinmap()
 
     def _make_retinmap(self, grid_pars=None):
         """
@@ -594,8 +532,11 @@ class SSN2DTopoV1(_SSN_Base):
 
         self.x_map = X
         self.y_map = Y
-        self.x_vec = np.tile(X.ravel(), (2,))
-        self.y_vec = np.tile(Y.ravel(), (2,))
+        
+        self.x_vec = np.tile(X.ravel(), (self.phases*2,))
+        self.y_vec = np.tile(Y.ravel(), (self.phases*2,))
+      
+        
         return self.x_map, self.y_map
 
     def _make_orimap(self, hyper_col=None, nn=30, X=None, Y=None):
@@ -603,6 +544,7 @@ class SSN2DTopoV1(_SSN_Base):
         Makes the orientation map for the grid, by superposition of plane-waves.
         hyper_col = hyper column length for the network in retinotopic degrees
         nn = (30 by default) # of planewaves used to construct the map
+
         Outputs/side-effects:
         OMap = self.ori_map = orientation preference for each cell in the network
         self.ori_vec = vectorized OMap
@@ -615,8 +557,8 @@ class SSN2DTopoV1(_SSN_Base):
         Y = self.y_map if Y is None else Y
 
         z = np.zeros_like(X)
-        #key = random.PRNGKey(87) #JAX CHANGES
-        #numpy.random.seed(10)
+        #key = random.PRNGKey(87)
+        #numpy.random.seed(6)
         for j in range(nn):
             kj = np.array([np.cos(j * np.pi/nn), np.sin(j * np.pi/nn)]) * 2*np.pi/(hyper_col)
             
@@ -629,46 +571,36 @@ class SSN2DTopoV1(_SSN_Base):
             #NUMPY RANDOM
             sj = 2 * numpy.random.randint(0, 2)-1 #random number that's either + or -1.
             phij = numpy.random.rand()*2*np.pi
-            
+
             tmp = (X*kj[0] + Y*kj[1]) * sj + phij
             z = z + np.exp(1j * tmp)
 
+
         # ori map with preferred orientations in the range (0, _Lring] (i.e. (0, 180] by default)
-        self.ori_map = (np.angle(z) + np.pi) * SSN2DTopoV1._Lring/(2*np.pi)
+        self.ori_map = (np.angle(z) + np.pi) * SSN2DTopoV1_ONOFF._Lring/(2*np.pi)
+        self.ori_vec = np.tile(self.ori_map.ravel(), (4,))
 
-        self.ori_vec = np.tile(self.ori_map.ravel(), (2,))
         return self.ori_map
-    
-    def input_ori_map(self, ori_map):
-        self.ori_map= ori_map
-        self.ori_vec = np.tile(self.ori_map.ravel(), (2,))
-        self._make_distances()
-        self._make_retinmap()
 
-    def _make_distances(self): #,PERIODIC
-        PERIODIC = self.conn_pars.PERIODIC
+    def _make_distances(self):
         Lx = Ly = self.grid_pars.gridsize_mm
         absdiff_ring = lambda d_x, L: np.minimum(np.abs(d_x), L - np.abs(d_x))
-        #Prevent kink in function
         cosdiff_ring = lambda d_x, L: np.sqrt(2 * (1 - np.cos(d_x * 2 * np.pi/L))) * L / 2/ np.pi
+        PERIODIC = self.conn_pars.PERIODIC
         if PERIODIC:
             absdiff_x = absdiff_y = lambda d_x: absdiff_ring(d_x, Lx + self.grid_pars.dx)
         else:
             absdiff_x = absdiff_y = lambda d_x: np.abs(d_x)
-        xs = np.reshape(self.x_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
-        ys = np.reshape(self.y_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
-        oris = np.reshape(self.ori_vec, (2, self.Ne, 1)) # (cell-type, grid-location, None)
+        
+        xs = np.reshape(self.x_vec, (self.phases*2, self.Nc, 1)) # (cell-type, grid-location, None)
+        ys = np.reshape(self.y_vec, (self.phases*2, self.Nc, 1)) # (cell-type, grid-location, None)
+        oris = np.reshape(self.ori_vec, (self.phases*2, self.Nc, 1)) # (cell-type, grid-location, None)
         
         # to generalize the next two lines, can replace 0's with a and b in range(2) (pre and post-synaptic cell-type indices)
         xy_dist = np.sqrt(absdiff_x(xs[0] - xs[0].T)**2 + absdiff_y(ys[0] - ys[0].T)**2)
-        ori_dist = cosdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1._Lring)
-        if self.train_ori!=None:
-            trained_ori_dist = cosdiff_ring(oris[0] - self.train_ori, SSN2DTopoV1._Lring) #NEW - calculate distance to trained orientation
-            self.trained_ori_dist = trained_ori_dist.squeeze()
-            
+        ori_dist = cosdiff_ring(oris[0] - oris[0].T, SSN2DTopoV1_ONOFF._Lring)
         self.xy_dist = xy_dist
         self.ori_dist = ori_dist
-        
 
         return xy_dist, ori_dist  
 
@@ -683,52 +615,55 @@ class SSN2DTopoV1(_SSN_Base):
          s_2x2 = ranges of weights between different pre/post cell-type
          p_local = relative strength of local parts of E projections
          sigma_oris = range of wights in terms of preferred orientation difference
+
         Output/side-effects:
         self.W
         """
         #conn_pars = locals()
         #conn_pars.pop("self")
         #self.conn_pars = conn_pars
-       
         PERIODIC = self.conn_pars.PERIODIC
         p_local = self.conn_pars.p_local
+      
+        
 
         if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
             xy_dist = self.xy_dist
             ori_dist = self.ori_dist
         else:
             xy_dist, ori_dist = self._make_distances()
-
+    
+        #Check shape of sigma_oris
+        #if np.isscalar(sigma_oris): sigma_oris = sigma_oris * np.ones((2,2))
         if np.shape(sigma_oris) == (1,): sigma_oris = sigma_oris * np.ones((2,2))
         
         elif np.shape(sigma_oris) == (2,): sigma_oris = np.ones((2,1)) * np.array(sigma_oris) 
         
+        
+        
+        if np.isscalar(p_local) or len(p_local) == 1:
+            p_local = np.asarray(p_local) * np.ones(2)
+            
+        #Added from homoring code
         if np.isscalar(s_2x2):
             s_2x2 = s_2x2 * np.ones((2,2))
         else:
             assert s_2x2.shape == (2,2)
-        
-        if np.isscalar(p_local) or len(p_local) == 1:
-            p_local = np.asarray(p_local) * np.ones(2)
 
         Wblks = [[1,1],[1,1]]
-        
-
         # loop over post- (a) and pre-synaptic (b) cell-types
         for a in range(2):
             for b in range(2):
                 if b == 0: # E projections
                     W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2))
-                
                 elif b == 1: # I projections
-                
                     W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2))
 
                 if Jnoise > 0: # add some noise
                     if Jnoise_GAUSSIAN:
                         ##JAX CHANGES##
                         #jitter = np.random.standard_normal(W.shape)
-                        key = random.PRNGKey(87)
+                        key = random.PRNGKey(87) #87
                         key, subkey=random.split(key)
                         jitter = random.normal(key, W.shape)
                     else:
@@ -755,199 +690,149 @@ class SSN2DTopoV1(_SSN_Base):
 
                 Wblks[a][b] = J_2x2[a, b] * W
 
-        W = np.block(Wblks)
-        return W
-    
-    
-    def make_new_W(self, J_2x2, s_2x2, sigma_oris, kappa_pre, kappa_post, Jnoise=0,
-                Jnoise_GAUSSIAN=True, MinSyn=1e-4, CellWiseNormalized=False,
-                                                        PERIODIC=True): #, prngKey=0):
-            """
-            make the full recurrent connectivity matrix W
-            In:
-             J_2x2 = total strength of weights of different pre/post cell-type
-             s_2x2 = ranges of weights between different pre/post cell-type
-             p_local = relative strength of local parts of E projections
-             sigma_oris = range of wights in terms of preferred orientation difference
-            Output/side-effects:
-            self.W
-            """
-            #conn_pars = locals()
-            #conn_pars.pop("self")
-            #self.conn_pars = conn_pars
-
-          
-            PERIODIC = self.conn_pars.PERIODIC
-            p_local = self.conn_pars.p_local
-
-            if hasattr(self, "xy_dist") and hasattr(self, "ori_dist"):
-                xy_dist = self.xy_dist
-                ori_dist = self.ori_dist
-                trained_ori_dist = self.trained_ori_dist
-            else:
-                xy_dist, ori_dist = self._make_distances()
-            
-            #Reshape sigma_oris
-            if np.shape(sigma_oris) == (1,): sigma_oris = sigma_oris * np.ones((2,2))
-            elif np.shape(sigma_oris) == (2,): sigma_oris = np.ones((2,1)) * np.array(sigma_oris)
-            
-            #Reshape kappa pre
-            if np.shape(kappa_pre) == (1,): kappa_pre = kappa_pre * np.ones((2,2))
-            elif np.shape(kappa_pre) == (2,): kappa_pre = np.ones((2,1)) * np.array(kappa_pre) 
-            
-            #Reshape kappa post
-            if np.shape(kappa_post) == (1,): kappa_post = kappa_post * np.ones((2,2))
-            elif np.shape(kappa_post) == (2,): kappa_post = np.ones((2,1)) * np.array(kappa_post) 
-            
-
-            if np.isscalar(s_2x2):
-                s_2x2 = s_2x2 * np.ones((2,2))
-            else:
-                assert s_2x2.shape == (2,2)
-
-            if np.isscalar(p_local) or len(p_local) == 1:
-                p_local = np.asarray(p_local) * np.ones(2)
-
-            #Create empty matrix
-            Wblks = [[1,1],[1,1]]
-            
-            # loop over post- (a) and pre-synaptic (b) cell-types
-          
-            for a in range(2):
-                for b in range(2):
-                    '''
-                    if b == 0: # E projections
-                        W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2) -trained_ori_dist[:, None]**2/(2*sigma_post[a]**2) -trained_ori_dist[None,:]**2/(2*sigma_pre[b]**2) )
-
-                    elif b == 1: # I projections
-                        W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2) -trained_ori_dist[:, None]**2/(2*sigma_post[a]**2) -trained_ori_dist[None,:]**2/(2*sigma_pre[b]**2 )) 
-                    ''' 
-                   
-                    if b == 0: # E projections
-                        W = np.exp(-xy_dist/s_2x2[a,b] -ori_dist**2/(2*sigma_oris[a,b]**2) - kappa_post[a,b]*trained_ori_dist[:, None]**2/2 /45**2  -kappa_pre[a,b]*trained_ori_dist[None,:]**2/2/45**2 )
-                        
-                    elif b == 1: # I projections 
-                        W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2) -kappa_post[a,b] * trained_ori_dist[:, None]**2/2/45**2  -kappa_pre[a,b]*trained_ori_dist[None,:]**2/2/45**2)
-
-
-
-                    if Jnoise > 0: # add some noise
-                        if Jnoise_GAUSSIAN:
-                            ##JAX CHANGES##
-                            #jitter = np.random.standard_normal(W.shape)
-                            key = random.PRNGKey(87)
-                            key, subkey=random.split(key)
-                            jitter = random.normal(key, W.shape)
-                        else:
-                            ##JAX CHANGES##
-                           #jitter = 2* np.random.random(W.shape) - 1
-                            key = random.PRNGKey(87)
-                            key, subkey=random.split(key)
-                            jitter = 2* random.uniform(key, W.shape) - 1
-                        W = (1 + Jnoise * jitter) * W
-
-                    # sparsify (set small weights to zero)
-                    W = np.where(W < MinSyn, 0, W) # what's the point of this if not using sparse matrices
-
-                    # row-wise normalize
-                    tW = np.sum(W, axis=1)
-                    if not CellWiseNormalized:
-                        tW = np.mean(tW)
-                        W =  W / tW
-                    else:
-                        W = W / tW[:, None]
-
-                    # for E projections, add the local part
-                    # NOTE: alterntaively could do this before adding noise & normalizing
-                    if b == 0:
-                        W = p_local[a] * np.eye(*W.shape) + (1-p_local[a]) * W
-
-                    Wblks[a][b] = J_2x2[a, b] * W
-            
-            
-            W = np.block(Wblks)
-            return W
-            
-
+        self.W = np.block(Wblks)
         
-    def create_gabor_filters(self):
+        B=np.ones((2,2))
+        self.W=np.kron(B, self.W)
+        
+        #return self.W
     
-        e_filters=[] #array of filters
+    
+    
+    def response_plots(self, vector):
+        '''
+        Separate and plot into vector as squares according to E_ON, I_ON, E_OFF, I_OFF
+        Input:
+            vector: size N
+        Output:
+            plots in squares
+        '''
+
+        fig, ax = plt.subplots(2,2, figsize=(9,9))
+        fig.subplots_adjust(hspace=0.2)
+
+        ax[0,0].imshow(vector[0:self.Ne//2].reshape((9,9)))
+        ax[0,0].set_title('E_ON')
+
+        ax[0,1].imshow(vector[self.Ne//2:2*(self.Ne//2)].reshape((9,9)))
+        ax[0,1].set_title('I_ON')
+
+        ax[1,0].imshow(vector[2*(self.Ne//2):3*(self.Ne//2)].reshape((9,9)))
+        ax[1,0].set_title('E_OFF')
+
+        ax[1,1].imshow(vector[3*(self.Ne//2):].reshape((9,9)))
+        ax[1,1].set_title('I_OFF')
+
+    
+    
+    def create_gabor_filters(self):#(self, edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE = 1, gI = 1, A=None):
+        
+        #Create array of filters
+        e_filters=[] 
+        if self.phases==4:
+            e_filters_pi2 = []
 
         #Iterate over SSN map
         for i in range(self.ori_map.shape[0]):
             for j in range(self.ori_map.shape[1]):
                 gabor=GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k_filt, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel)
-
+                
                 e_filters.append(gabor.filter.ravel())
-        e_filters=np.array(e_filters)
-
-        #create inhibitory filters
+                
+                if self.phases==4:
+                    gabor_2 = GaborFilter(x_i=self.x_map[i,j], y_i=self.y_map[i,j], edge_deg=self.edge_deg, k=self.k_filt, sigma_g=self.sigma_g, theta=self.ori_map[i,j], conv_factor=self.conv_factor, degree_per_pixel=self.degree_per_pixel, phase = np.pi/2)
+                    e_filters_pi2.append(gabor_2.filter.ravel())
+                
+                        
         #i_constant= gI / gE
-        e_filters = self.gE * e_filters
-        i_filters = self.gI * e_filters
-        SSN_filters=np.vstack([e_filters, i_filters]) #shape - (n_neurons, n_pixels in image(n_pixels_x_axis*n_pixels_y_axis))        
+        e_filters_o =np.array(e_filters)
+        e_filters = self.gE * e_filters_o
+        i_filters = self.gI * e_filters_o
+
+        #create filters with phase equal to pi
+        e_off_filters = - e_filters
+        i_off_filters = - i_filters
+        
+
+        if self.phases ==4:
+            e_filters_o_pi2 =np.array(e_filters_pi2)
+
+            e_filters_pi2 = self.gE * e_filters_o_pi2
+            i_filters_pi2 = self.gI * e_filters_o_pi2
+
+            #create filters with phase equal to -pi/2
+            e_off_filters_pi2 = - e_filters_pi2
+            i_off_filters_pi2 = - i_filters_pi2
+            SSN_filters=np.vstack([e_filters, i_filters, e_filters_pi2, i_filters_pi2,  e_off_filters, i_off_filters, e_off_filters_pi2, i_off_filters_pi2])
+        
+        
+        else:
+            SSN_filters=np.vstack([e_filters, i_filters, e_off_filters, i_off_filters])
+        
+
+            
+        
+        if self.A == None:
+            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+            self.A = A
+            
+        
+        #Normalise Gabor filters
+        SSN_filters = SSN_filters*self.A
+        
+        if self.phases ==4:
+            if self.A2 ==None:
+                A2 = find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()), phase = np.pi/2)
+                self.A2 = A2
+                
+                
+            SSN_filters=np.vstack([e_filters*self.A, i_filters*self.A, e_filters_pi2*self.A2, i_filters_pi2*self.A2,  e_off_filters*self.A, i_off_filters*self.A, e_off_filters_pi2*self.A2, i_off_filters_pi2*self.A2])
         
         #remove mean so that input to constant grating is 0
         SSN_filters = SSN_filters - np.mean(SSN_filters, axis=1)[:, None]
-        if self.A == None:
-            A= GaborFilter.find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
-        
-        #Normalise Gabor filters
-        SSN_filters = SSN_filters*A
-        
-        #return SSN_filters, A
+        self.gabor_filters = SSN_filters
+
+        return SSN_filters, self.A
     
+    def select_type(self, vec, map_number):
+        out = vec[(map_number-1)*self.Nc:map_number*self.Nc]
+        return out
     
-    def select_type(self, vec, select='E'):
+    def select_type_old(self, vec, select='E_ON'):
     
         assert vec.ndim == 1
         maps = self.vec2map(vec)
 
-        if select=='E':
+        if select=='E_ON':
             output = maps[0]
 
-        if select =='I':
-            output=maps [1]
+        if select =='I_ON':
+            output=maps[1]
 
+        if select == 'E_OFF':
+            output=maps[2]
+
+        if select == 'I_OFF':
+            output = maps[3]
+    
         return output
     
-    
-    #@partial(jax.jit, static_argnums = (0, 2, 3))
-    def apply_bounding_box(self, vec, size = 3.2, select='E'):
 
-        map_vec = self.select_type(vec, select)
+    def apply_bounding_box(self, vec, size = 3.2, select=1):
+        
+        Nx = self.grid_pars.gridsize_Nx
+        #map_vec = self.select_type(vec, select)
+        map_vec = self.select_type(vec, map_number = select).reshape(Nx,Nx)
 
         size = int(size / (self.grid_pars.dx)) +1
 
         start = int((self.grid_pars.gridsize_Nx - size) / 2)   
         
         map_vec = jax.lax.dynamic_slice(map_vec, (start, start), (size, size))
+        #map_vec = map_vec[start:start+size, start:start+size]
 
         return map_vec
-
-'''
-    def _make_inp_ori_dep(self, ONLY_E=False, ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1):
-        """
-        makes the orintation dependence factor for grating or Gabor stimuli
-        (a la Ray & Maunsell 2010)
-        """
-        if ori_s is None:  # set stim ori to pref ori of grid center E cell (same as I cell)
-            ##JAX CHANGES##
-            #ori_s = self.ori_vec[(self.x_vec==0) & (self.y_vec==0) & (self.EI==b"E")]
-            ori_s = self.ori_vec[(self.x_vec==0) & (self.y_vec==0) & self.condition]
-        if sig_ori_IF is None:
-            sig_ori_IF = sig_ori_EF
-
-        distsq = lambda x: np.minimum(np.abs(x), SSN2DTopoV1._Lring - np.abs(x))**2
-        dori = self.ori_vec - ori_s
-        if not ONLY_E:
-            ori_fac = np.hstack((gE * np.exp(-distsq(dori[:self.Ne])/(2* sig_ori_EF**2)),
-                                 gI * np.exp(-distsq(dori[self.Ne:])/(2* sig_ori_IF**2))))
-        else:
-            ori_fac = gE * np.exp(-distsq(dori[:self.Ne])/(2* sig_ori_EF**2))
-
-        return ori_fac
+    
 
     def make_grating_input(self, radius_s, sigma_RF=0.4, ONLY_E=False,
             ori_s=None, sig_ori_EF=32, sig_ori_IF=None, gE=1, gI=1, contrast=1):
@@ -998,11 +883,12 @@ class SSN2DTopoV1(_SSN_Base):
     #                            noise_pars.stdevI**2 * np.ones(self.Ni)) )
     #
     #     spatl_filt = ...
-
+'''
     def make_eLFP_from_inds(self, LFPinds):
         """
         makes a single LFP electrode signature (normalized spatial weight
         profile), given the (vectorized) indices of recorded neurons (LFPinds).
+
         OUT: e_LFP with shape (self.N,)
         """
         # LFPinds was called LFPrange in my MATLAB code
@@ -1017,6 +903,7 @@ class SSN2DTopoV1(_SSN_Base):
         """
         makes 1 or multiple LFP electrodes signatures (normalized spatial weight
         profile over E cells), given the (x,y) retinotopic coordinates of LFP probes.
+
         IN: probe_xys: shape (#probes, 2). Each row is the (x,y) coordinates of
                  a probe/electrode (by default given in degrees of visual angle)
              LFPradius: positive scalar. radius/range of LFP (by default given in mm)
@@ -1036,10 +923,68 @@ class SSN2DTopoV1(_SSN_Base):
             (LFPradius**2 > (self.x_vec - xy[0])**2 + (self.y_vec - xy[1])**2)))
 
         return np.asarray(e_LFP).T
-'''    
-class SSN2DTopoV1_AMPAGABA(SSN2DTopoV1, _SSN_AMPAGABA_Base):
+        
+        '''
+    
+class SSN2DTopoV1_AMPAGABA_ONOFF(SSN2DTopoV1_ONOFF, _SSN_AMPAGABA_Base):
     pass
 
 
+class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
 
+    def __init__(self, ssn_pars, grid_pars,  conn_pars, filter_pars, J_2x2, gE, gI, ori_map = None, **kwargs):
+        self.phases = ssn_pars.phases
+        self.Nc = grid_pars.gridsize_Nx**2 #number of columns
+        Ni = Ne = self.phases * self.Nc 
+        n=ssn_pars.n
+        
+        self.k=ssn_pars.k
+        tauE= ssn_pars.tauE
+        tauI=ssn_pars.tauI
+        
+        tau_vec = np.hstack([tauE * np.ones(self.Nc), tauI * np.ones(self.Nc)])
+        tau_vec = np.kron(np.ones((1, self.phases)), tau_vec ).squeeze()
+        self.tauE = tauE
+        self.tauI = tauI
+        #tau_vec = np.kron(np.array([1,1]), tau_vec )
+        tau_s=ssn_pars.tau_s
+  
+        super(SSN2DTopoV1_ONOFF, self).__init__(n=n, k=self.k, Ne=Ne, Ni=Ni,
+                                    tau_vec=tau_vec, **kwargs)
+        
+        self.grid_pars = grid_pars
+        self.conn_pars = conn_pars
+        #self._make_distances()
+        self._make_retinmap()
+        if ori_map==None:
+            self.ori_map = self._make_orimap()
+        else:
+            self.input_ori_map(ori_map)
+            
+        self.gE, self.gI = gE, gI
+        
+        #Gabor filter parameters
+        self.edge_deg = filter_pars.edge_deg
+        self.sigma_g = filter_pars.sigma_g
+        self.k_filt = filter_pars.k
+        self.conv_factor =  filter_pars.conv_factor
+        self.degree_per_pixel = filter_pars.degree_per_pixel
+        
+        self.A=ssn_pars.A
+        if ssn_pars.phases==4:
+            self.A2 = ssn_pars.A2
+                
+        self.gabor_filters, self.A = self.create_gabor_filters()
+        
+        self.make_local_W(J_2x2)
+        
+
+    def drdt(self, r, inp_vec):
+        r1 = np.reshape(r, (-1, self.Nc))
+        out = ( -r + self.powlaw(np.ravel(self.W @ r1) + inp_vec) ) / self.tau_vec
+        return out
     
+    def make_local_W(self, J_2x2):
+        #self.W = np.kron(np.ones((2,2)), np.asarray(J_2x2))
+        self.W = np.kron(np.eye(self.phases), np.asarray(J_2x2))
+        

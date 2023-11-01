@@ -369,7 +369,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI = 0.45, 0.45
+        gE, gI =0.3, 0.25
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -488,7 +488,6 @@ class GaborFilter:
 
             #calculate value of A
             A_value=100/(output_gabor) 
-
             #create list of A
             all_A.append(A_value)
 
@@ -546,7 +545,7 @@ def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, phase 
         #create list of A
         all_A.append(A_value)
     
-    #set_trace()
+
     #find average value of A
     all_A=np.array(all_A)
     A=all_A.mean()
@@ -608,7 +607,7 @@ class JiaGrating:
 
         for idx_x, idx_y in zip(*overrado):
             annulus[idx_x, idx_y] = annulus[idx_x, idx_y] * numpy.exp(-1 * ((((edge_control[idx_x, idx_y] - self.inner_radius) * self.pixel_per_degree) ** 2) / (2 * (self.smooth_sd ** 2))))    
-
+     
         gabor_sti = _GRAY * (1 + self.grating_contrast * numpy.cos(2 * math.pi * self.spatial_freq * (y * numpy.sin(self.angle) + x * numpy.cos(self.angle)) + self.phase))
 
         gabor_sti[numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2)) > self.grating_size] = _GRAY
@@ -780,39 +779,6 @@ def test_accuracies(opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars,  conv
         print('grating contrast = {}, jitter = {}, noise std={}, acc (% >90 ) = {}'.format(stimuli_pars['grating_contrast'], stimuli_pars['jitter_val'], stimuli_pars['std'], higher_90))
     return higher_90, accuracies
 
-
-def initial_acc( opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars,  conv_pars, stimuli_pars, jitter_max,  std_max, p = 0.9):
-    '''
-    Find initial accuracy for varying jitter and noise levels. 
-    
-    '''
-
-    
-    list_noise  = np.linspace(20, std_max, 5)
-    list_jitters = np.linspace(0, jitter_max, 5)
-   
-    
-    low_acc=[]
-    all_accuracies=[]
-    
-    
-    for noise in list_noise:
-        for jitter in list_jitters:
-            
-            stimuli_pars['std'] = noise
-            stimuli_pars['jitter_val'] = jitter
-            higher_90, acc = test_accuracies(opt_pars, ssn_pars, grid_pars, conn_pars, filter_pars, conv_pars, stimuli_pars, p=p,  trials=100, printing=False)
-            
-            #save low accuracies
-            if higher_90 < 0.05:
-                low_acc.append([jitter, noise, higher_90])
-
-            all_accuracies.append([jitter, noise, acc])
-    
-    plot_histograms(all_accuracies)
-        
-    
-    return all_accuracies, low_acc
 
 
 
@@ -990,29 +956,41 @@ def recursively_load_dict_contents_from_group(h5file, path):
 
 
 
-def load_param_from_csv(results_filename, epoch, lateral = False):
+def load_param_from_csv(results_filename, epoch):
     
     all_results = pd.read_csv(results_filename, header = 0)
     epoch_params = all_results.loc[all_results['epoch'] == epoch]
-    
+    params = []
     J_m = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
     J_s = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
     c_E = epoch_params['c_E'].values[0]
     c_I = epoch_params['c_I'].values[0]
-    f_E = epoch_params['f_E'].values[0]
-    f_I = epoch_params['f_I'].values[0]
-    sigma_oris = np.asarray([epoch_params['sigma_orisE'].values[0], epoch_params['sigma_orisI'].values[0]])
 
     J_2x2_m = make_J2x2_o(*J_m)
     J_2x2_s = make_J2x2_o(*J_s)
+    params.append(J_2x2_m)
+    params.append(J_2x2_s)
+    params.append(c_E)
+    params.append(c_I)
+    
+    
+    if 'sigma_orisE' in all_results.columns:
+        sigma_oris = np.asarray([epoch_params['sigma_orisE'].values[0], epoch_params['sigma_orisI'].values[0]])
+        params.append(sigma_oris)
+    
+    if 'f_E' in all_results.columns:
+        f_E = epoch_params['f_E'].values[0]
+        f_I = epoch_params['f_I'].values[0]
+        params.append(f_E)
+        params.append(f_I)
     
     if 'kappa_preE' in all_results.columns:
         kappa_pre = np.asarray([epoch_params['kappa_preE'].values[0], epoch_params['kappa_preI'].values[0]])
         kappa_post = np.asarray([epoch_params['kappa_postE'].values[0], epoch_params['kappa_postI'].values[0]])
+        params.append(kappa_pre)
+        params.append(kappa_post)
         
-        return J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris, kappa_pre, kappa_post
-    
-    return J_2x2_m, J_2x2_s, c_E, c_I, f_E, f_I, sigma_oris
+    return params
 
 def create_stimuli(stimuli_pars, ref_ori, number = 10, jitter_val = 5):
 
