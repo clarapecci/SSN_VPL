@@ -102,7 +102,7 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
     max_I = np.max(fp[ssn.Ne:-1])
     
     #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(max_I, R_thresh = 100, R_grad = 80) + leaky_relu(max_E, R_thresh = 50, R_grad = 40)
+    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
     
     if return_fp ==True:
         return r_box, r_max, avg_dx, fp, max_E, max_I
@@ -110,17 +110,20 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
         return r_box, r_max, avg_dx
 
 
-def leaky_relu(x, R_thresh, R_grad):
-    grad = (R_thresh/R_grad - 1)/R_thresh**2
+def leaky_relu(x, R_thresh, slope, height = 0.15):
+
+    constant = height/(R_thresh**2)
     
-    y = jax.lax.cond((x<R_thresh), x_less_than, x_greater_than, x, grad, R_grad)
-
+    y = jax.lax.cond((x<R_thresh), x_less_than, x_greater_than, x, constant, slope, height)
+    
     return y
-def x_greater_than(x, grad, R_grad):
-    return np.maximum(0, (x/R_grad - 1))
+ 
+def x_greater_than(x, constant, slope, height):
+    return np.maximum(0, (x*slope - (1-height)))
 
-def x_less_than(x, grad, R_grad):
-    return grad*(x**2)
+def x_less_than(x, constant, slope, height):
+    return constant*(x**2) 
+
     
     
 def take_log(J_2x2):
@@ -246,8 +249,8 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
         max_I = np.max(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
      
     #Loss for high rates
-    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(max_E, R_thresh = 100, R_grad = 80) + leaky_relu(max_I, R_thresh = 50, R_grad = 40)
+    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1)
+    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
     
     #layer_output = layer_output/ssn.phases
     if return_fp ==True:
@@ -367,12 +370,14 @@ def model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=Fals
     
     #Obtain variables from dictionaries
     logJ_2x2 = ssn_layer_pars['logJ_2x2']
-    c_E = ssn_layer_pars['c_E']
-    c_I = ssn_layer_pars['c_I']
-    f_E = ssn_layer_pars['f_E']
-    f_I = ssn_layer_pars['f_I']
-    #f_E = constant_ssn_pars['f_E']
-    #f_I = constant_ssn_pars['f_I']
+    #c_E = ssn_layer_pars['c_E']
+    #c_I = ssn_layer_pars['c_I']
+    c_E = constant_ssn_pars['c_E']
+    c_I = constant_ssn_pars['c_I']
+    #f_E = ssn_layer_pars['f_E']
+    #f_I = ssn_layer_pars['f_I']
+    f_E = constant_ssn_pars['f_E']
+    f_I = constant_ssn_pars['f_I']
     
     sigma_oris = constant_ssn_pars['sigma_oris']
     kappa_pre = ssn_layer_pars['kappa_pre']
@@ -483,12 +488,14 @@ def new_two_stage_training(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, k
     constant_ssn_pars['logs_2x2'] = logs_2x2
     constant_ssn_pars['train_ori'] = ref_ori
     constant_ssn_pars['sigma_oris']=sigma_oris
-    #constant_ssn_pars['f_E'] = f_E
-    #constant_ssn_pars['f_I'] = f_I
+    constant_ssn_pars['f_E'] = f_E
+    constant_ssn_pars['f_I'] = f_I
+    constant_ssn_pars['c_E'] = c_E
+    constant_ssn_pars['c_I'] = c_I
     readout_pars = dict(w_sig = w_sig, b_sig = b_sig)
-    #add f_E, f_I here
-    ssn_layer_pars = dict(logJ_2x2 = logJ_2x2,f_E = f_E, f_I = f_I, c_E = c_E, c_I = c_I, kappa_pre = kappa_pre, kappa_post = kappa_post)
-
+    #Training including f_E, c_E
+    #ssn_layer_pars = dict(logJ_2x2 = logJ_2x2,f_E = f_E, f_I = f_I, c_E = c_E, c_I = c_I, kappa_pre = kappa_pre, kappa_post = kappa_post)
+    ssn_layer_pars = dict(logJ_2x2 = logJ_2x2, kappa_pre = kappa_pre, kappa_post = kappa_post)
     
     print(constant_ssn_pars['ssn_mid_ori_map'])
     
@@ -799,8 +806,10 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
             
     save_params.update(Jm)
     save_params.update(Js)
-    save_params['c_E'] = ssn_layer_pars['c_E']
-    save_params['c_I'] = ssn_layer_pars['c_I']
+    
+    if 'c_E' in ssn_layer_pars.keys():
+        save_params['c_E'] = ssn_layer_pars['c_E']
+        save_params['c_I'] = ssn_layer_pars['c_I']
 
    
     if 'sigma_oris' in ssn_layer_pars.keys():

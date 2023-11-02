@@ -416,26 +416,6 @@ def plot_losses(training_losses, validation_losses, epochs_to_save, epoch_c = No
     plt.show()
     plt.close()
     
-'''
-def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, save=None):
-    plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
-    plt.plot(val_loss_per_epoch[:,1], val_loss_per_epoch[:,0], label='Validation')
-    plt.legend()
-    plt.title('Training losses')
-    
-    if epoch_c==None:
-                pass
-    else:
-        if np.isscalar(epoch_c):
-            plt.axvline(x=epoch_c, c = 'r')
-        else:
-            plt.axvline(x=epoch_c[0], c = 'r')
-            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
-    if save:
-        plt.savefig(save+'.png')
-    plt.show()
-    plt.close()
-'''
 
 def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, save=None, inset = None):
     

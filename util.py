@@ -15,8 +15,7 @@ from numpy.random import binomial
 from pdb import set_trace
 import os
 
-
-
+ 
 #####  ORIGINAL UTIL ####
 
 def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT=True, save= None, inds=None, verbose=True, silent=False, print_dt = False):
@@ -963,16 +962,19 @@ def load_param_from_csv(results_filename, epoch):
     params = []
     J_m = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
     J_s = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
-    c_E = epoch_params['c_E'].values[0]
-    c_I = epoch_params['c_I'].values[0]
+
 
     J_2x2_m = make_J2x2_o(*J_m)
     J_2x2_s = make_J2x2_o(*J_s)
     params.append(J_2x2_m)
     params.append(J_2x2_s)
-    params.append(c_E)
-    params.append(c_I)
+
     
+    if 'c_E' in all_results.columns:
+        c_E = epoch_params['c_E'].values[0]
+        c_I = epoch_params['c_I'].values[0]
+        params.append(c_E)
+        params.append(c_I)
     
     if 'sigma_orisE' in all_results.columns:
         sigma_oris = np.asarray([epoch_params['sigma_orisE'].values[0], epoch_params['sigma_orisI'].values[0]])
