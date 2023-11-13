@@ -454,60 +454,6 @@ class GaborFilter:
         return gaussian*spatial[::-1] #same convention as stimuli
     
     
-    def find_A(self, indices, return_all=False):
-        '''
-        Find constant to multiply Gabor filters.
-        Input:
-            gabor_pars: Filter parameters - centre already specified in function
-            stimuli_pars: Stimuli parameters (high constrast and spanning all visual field)
-            indices: List of orientatins in degrees to calculate filter and corresponding stimuli
-        Output:
-            A: value of constant so that contrast = 100
-        '''
-        all_A=[]
-        all_gabors=[]
-        all_test_stimuli=[]
-
-        for ori in indices:
-
-            #generate Gabor filter and stimuli at orientation
-            gabor=GaborFilter(theta=ori, x_i=0, y_i=0, edge_deg=self.edge_deg, k=self.k, sigma_g=self.sigma_g, degree_per_pixel=self.degree_per_pixel)
-            
-            #CHANGED K HERE
-            test_grating=BW_Grating(ori_deg=ori, edge_deg=self.edge_deg, k=self.k, degree_per_pixel=self.degree_per_pixel, outer_radius=self.edge_deg*2, inner_radius=self.edge_deg*2, grating_contrast=0.99)
-            test_stimuli=test_grating.BW_image()
-
-            #multiply filter and stimuli
-            output_gabor=np.matmul(gabor.filter.ravel(), test_stimuli.ravel())
-
-
-            all_gabors.append(gabor.filter)
-            all_test_stimuli.append(test_stimuli)
-
-
-            #calculate value of A
-            A_value=100/(output_gabor) 
-            #create list of A
-            all_A.append(A_value)
-
-
-        #find average value of A
-        all_A=np.array(all_A)
-        A=all_A.mean()
-
-        all_gabors=np.array(all_gabors)
-        all_test_stimuli=np.array(all_test_stimuli)
-
-        #print('Average A is {}'.format(A))
-
-        if return_all==True:
-            output =  A , all_gabors, all_test_stimuli
-        else:
-            output=A
-
-        return output
-
-    
 ### FINDING CONSTANT FOR GABOR FILTERS ###
 def find_A(conv_factor, k, sigma_g, edge_deg,  degree_per_pixel, indices, phase = 0, return_all=False):
     '''
@@ -677,21 +623,6 @@ class BW_Grating(JiaGrating):
 
 
 #CREATE INPUT STIMULI
-def make_gratings(ref_ori, target_ori, jitter_val=5, **stimuli_pars, ):
-    '''
-    Create reference and target stimulus given orientations using same jitter (randomly generated per trial) for reference and target.
-    '''
-    #generate jitter for reference and target
-    jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
-    
-    #create reference grating
-    ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
-
-    #create target grating
-    target = BW_Grating(ori_deg = target_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
-    
-    return ref, target
-    
 
     
 def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
@@ -717,9 +648,16 @@ def create_gratings(ref_ori, number, offset, jitter_val, **stimuli_pars):
         else:
             target_ori = ref_ori + offset
             label = 0
+        set_trace()
+        jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
         
-        ref, target = make_gratings(ref_ori, target_ori, jitter_val,**stimuli_pars ) 
+        
+        #create reference grating
+        ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
 
+        #create target grating
+        target = BW_Grating(ori_deg = target_ori, jitter=jitter, **stimuli_pars).BW_image().ravel()
+        
         data_dict = {'ref':ref, 'target': target, 'label':label}
         training_gratings.append(data_dict)
 
