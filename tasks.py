@@ -8,14 +8,12 @@ import optax
 from functools import partial
 import time
 import numpy
-from util import create_gratings, create_stimuli
+import csv
 from IPython.core.debugger import set_trace
 from SSN_classes_phases import SSN2DTopoV1_ONOFF_local
 from SSN_classes_jax_on_only import SSN2DTopoV1
 
-from two_layer_training_lateral_phases import take_log, create_data, sep_exponentiate, middle_layer_fixed_point, obtain_fixed_point_centre_E, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage
-
-
+from two_layer_training_lateral_phases import take_log, sep_exponentiate, middle_layer_fixed_point, obtain_fixed_point_centre_E, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage, save_params_dict_two_stage, plot_max_rates, plot_w_sig, create_data
 
 def generate_noise(sig_noise,  batch_size, length):
     '''
@@ -25,7 +23,7 @@ def generate_noise(sig_noise,  batch_size, length):
 
 
 
-def two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I):
+def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I):
     '''
     Run individual stimulus through two layer model. 
     
@@ -46,19 +44,20 @@ def two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, c
     '''
     
     #Find input of middle layer
-    SSN_mid_input=np.matmul(ssn_mid.gabor_filters, stimuli)
+    SSN_mid_input=np.matmul(ssn_m.gabor_filters, stimuli)
  
     #Rectify input
     SSN_mid_input = np.maximum(0, SSN_mid_input) + constant_vector_mid
     
     #Calculate steady state response of middle layer
-    r_mid, r_max_mid, avg_dx_mid, _, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_mid, SSN_mid_input, conv_pars, return_fp = True)
+    r_mid, r_max_mid, avg_dx_mid, _, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_m, SSN_mid_input, conv_pars, return_fp = True)
+    
     
     #Concatenate input to superficial layer
     sup_input_ref = np.hstack([r_mid*f_E, r_mid*f_I]) + constant_vector_sup
 
     #Calculate steady state response of superficial layer
-    r_sup, r_max_sup, avg_dx_sup, _, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_sup, sup_input_ref, conv_pars, return_fp= True)
+    r_sup, r_max_sup, avg_dx_sup, _, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_s, sup_input_ref, conv_pars, return_fp= True)
     
     return r_sup, [r_max_mid, r_max_sup], [avg_dx_mid, avg_dx_sup], [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
 
@@ -82,10 +81,10 @@ def ori_discrimination(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_m
     logJ_2x2_s = ssn_layer_pars['J_2x2_s']
     c_E = ssn_layer_pars['c_E']
     c_I = ssn_layer_pars['c_I']
-    f_E = ssn_layer_pars['f_E']
-    f_I = ssn_layer_pars['f_I']
-    kappa_pre = ssn_layer_pars['kappa_pre']
-    kappa_post = ssn_layer_pars['kappa_post']
+    f_E = np.exp(ssn_layer_pars['f_E'])
+    f_I = np.exp(ssn_layer_pars['f_I'])
+    kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
+    kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
     
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
@@ -152,7 +151,6 @@ jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2, 3
 
 
 
-
 def training_loss(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, ssn_sup, train_data, noise_ref, noise_target, noise_type):
     
     '''
@@ -165,10 +163,10 @@ def training_loss(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, s
     #Total loss to take gradient with respect to 
     loss= np.mean(total_loss)
     
-    #Find mean of different kind of loss
+    #Find mean of different losses
     all_losses = np.mean(all_losses, axis = 0)
     
-    #Find maximum rates across batches
+    #Find maximum rates across trials
     max_rates = [item.max() for item in max_rates]
     
     #Calculate accuracy 
@@ -178,10 +176,7 @@ def training_loss(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, s
 
 
 
-
-
-
-def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, training_pars, stimuli_pars, results_filename = None, ref_ori = 55, offset = 4, results_dir = None, ssn_ori_map=None):
+def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, training_pars, stimuli_pars, results_filename = None, results_dir = None, ssn_ori_map=None):
     
     '''
     Training function for two layer model in two stages: first train readout layer up until early_acc ( default 70% accuracy), in second stage SSN layer parameters are trained.
@@ -199,19 +194,18 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     r_refs = []
     save_w_sigs = []
     first_stage_final_epoch = training_pars.epochs
-    #save_w_sigs.append(w_sig[:5])
+    save_w_sigs.append(readout_pars['w_sig'][:5])
   
     
     #Initialize networks
     
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars['ssn_pars'], grid_pars=constant_pars['grid_pars'], conn_pars=constant_pars['conn_pars_m'], filter_pars=constant_pars['filter_pars'], J_2x2=ssn_layer_pars['J_2x2_m'], gE = constant_pars['gE'][0], gI=constant_pars['gI'][0], ori_map = ssn_ori_map)
     
-    ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars['ssn_pars'], grid_pars=constant_pars['grid_pars'], conn_pars=constant_pars['conn_pars_s'], J_2x2=ssn_layer_pars['J_2x2_s'], s_2x2=constant_pars['s_2x2'], sigma_oris = constant_pars['sigma_oris'], ori_map = ssn_ori_map, train_ori = ref_ori, kappa_post = ssn_layer_pars['kappa_post'], kappa_pre = ssn_layer_pars['kappa_pre'])
+    ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars['ssn_pars'], grid_pars=constant_pars['grid_pars'], conn_pars=constant_pars['conn_pars_s'], J_2x2=ssn_layer_pars['J_2x2_s'], s_2x2=constant_pars['s_2x2'], sigma_oris = constant_pars['sigma_oris'], ori_map = ssn_ori_map, train_ori = stimuli_pars.ref_ori, kappa_post = ssn_layer_pars['kappa_post'], kappa_pre = ssn_layer_pars['kappa_pre'])
     
+                         
     batch_size = training_pars.batch_size
-    ref_ori = training_pars.ref_ori
-    offset = training_pars.offset
-    
+
     #Take logs of parameters
     ssn_layer_pars['J_2x2_m'] = take_log(ssn_layer_pars['J_2x2_m'])
     ssn_layer_pars['J_2x2_s'] = take_log(ssn_layer_pars['J_2x2_s'])
@@ -226,7 +220,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     optimizer = optax.adam(training_pars.eta)
     readout_state = optimizer.init(readout_pars)
     
-    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, training_pars.sig_noise, offset, loss_pars.lambda_w, batch_size, training_pars.noise_type))
+    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, training_pars.sig_noise, stimuli_pars.offset, loss_pars.lambda_w, batch_size, training_pars.noise_type))
 
 
     #Initialise csv file
@@ -241,11 +235,11 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
 
    
     ######## FIRST STAGE OF TRAINING #############
-    for epoch in range(0, training_pars.epochs+1):
+    for epoch in range(1, training_pars.epochs+1):
         start_time = time.time()
            
         #Load next batch of data and convert
-        train_data = create_data(stimuli_pars, n_trials = batch_size, offset = offset, ref_ori = ref_ori)
+        train_data = create_data(stimuli_pars, n_trials = batch_size)
             
         #Generate noise
         noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
@@ -255,7 +249,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, ssn_sup, train_data, noise_ref, noise_target, training_pars.noise_type)
         
         training_losses.append(epoch_loss)
-        if epoch==0:
+        if epoch==1:
             all_losses = epoch_all_losses
         else:
             all_losses = np.hstack((all_losses, epoch_all_losses)) 
@@ -272,18 +266,21 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         if epoch in epochs_to_save:
             
             #Evaluate model 
-            test_data = create_data(stimuli_pars, n_trials = test_size, offset = offset, ref_ori = ref_ori)
+            test_data = create_data(stimuli_pars, n_trials = test_size)
+            
             #Generate noise
             noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
             noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
             
             start_time = time.time()
             
+            #Calculate loss for testing data
             [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _ ]], _= loss_and_grad_readout(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, ssn_sup, test_data, noise_ref, noise_target, training_pars.noise_type)
             val_time = time.time() - start_time
             
             print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {}), '.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
-
+            
+            #Every 50 epochs print individual values of the loss
             if epoch%50 ==0:
                     print('Training accuracy: {}, all losses{}'.format(np.mean(np.asarray(train_accs[-20:])), epoch_all_losses))
             
@@ -297,7 +294,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
                 save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch)
                 
                 #Initialise results file
-                if epoch==0:
+                if epoch==1:
                         results_handle = open(results_filename, 'w')
                         results_writer = csv.DictWriter(results_handle, fieldnames=save_params.keys(), delimiter=',')
                         results_writer.writeheader()
@@ -306,40 +303,40 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
 
             
         #Early stop in first stage of training
-        if epoch>20 and  np.mean(np.asarray(train_accs[-20:]))>early_stop:
+        if epoch>20 and  np.mean(np.asarray(train_accs[-20:]))>training_pars.first_stage_acc:
             print('Early stop: {} accuracy achieved at epoch {}'.format(early_stop, epoch))
-            print('Entering second stage at epoch {}'.format(epoch))   
             first_stage_final_epoch = epoch
             
             #Save final parameters
             if results_filename:
                 save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch)
                 results_writer.writerow(save_params)
-            
             #Exit first training loop
             break
 
+            
         #Update readout parameters
         updates, readout_state = optimizer.update(grad, readout_state)
         readout_pars = optax.apply_updates(readout_pars, updates)
-        #save_w_sigs.append(readout_pars['w_sig'][:5])
+        save_w_sigs.append(readout_pars['w_sig'][:5])
                    
 #############START TRAINING NEW STAGE ##################################    
+    
+    print('Entering second stage at epoch {}'.format(epoch))  
     #Restart number of epochs
-    epoch = 0
+    
     #Reinitialize optimizer for second stage
     ssn_layer_state = optimizer.init(ssn_layer_pars)
     
-    for epoch in range(0, training_pars.epochs +1):
+    for epoch in range(1, training_pars.epochs +1):
                 
         #Generate next batch of data
-        train_data = create_data(stimuli_pars, n_trials = batch_size, offset = offset, ref_ori = ref_ori)
+        train_data = create_data(stimuli_pars, n_trials = batch_size)
         
         #Generate noise
         noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
         noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
             
-
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, conv_pars, loss_pars, ssn_mid, ssn_sup, test_data, noise_ref, noise_target, training_pars.noise_type)
         
         #Save training losses
@@ -354,7 +351,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         if epoch in epochs_to_save:
 
             #Evaluate model 
-            test_data = create_data(stimuli_pars, n_trials = test_size, offset = offset, ref_ori = ref_ori)
+            test_data = create_data(stimuli_pars, n_trials = test_size)
             #Generate noise
             noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
             noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
@@ -373,7 +370,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
             val_sig_output.append(val_x)
 
             if results_filename:
-                    save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch = epoch+final_epoch)
+                    save_params = save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch = epoch+first_stage_final_epoch)
                     results_writer.writerow(save_params)
 
         #Update parameters
@@ -381,17 +378,84 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         ssn_layer_pars = optax.apply_updates(ssn_layer_pars, updates)
 
     #Plot evolution of w_sig values
-    #save_w_sigs = np.asarray(np.vstack(save_w_sigs))
-    #plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
+    save_w_sigs = np.asarray(np.vstack(save_w_sigs))
+    plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
     
     #Save transition epochs to plot losses and accuracy
-    epochs_plot = [first_stage_final_epoch, epoch+first_stage_final_epoch]
+    epochs_plot = first_stage_final_epoch
 
     #Plot maximum rates achieved during training
-    #r_refs = np.vstack(np.asarray(r_refs))
-    #plot_max_rates(r_refs, epoch_c = epochs_plot, save= os.path.join(results_dir+'_max_rates'))
+    r_refs = np.vstack(np.asarray(r_refs))
+    plot_max_rates(r_refs, epochs_plot = epochs_plot, save= os.path.join(results_dir+'_max_rates'))
 
-    
     return [ssn_layer_pars, readout_pars], np.vstack([val_loss_per_epoch]), all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epochs_plot, save_w_sigs
 
 
+
+
+def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
+    
+    '''
+    Assemble trained parameters and epoch information into single dictionary for saving
+    Inputs:
+        dictionaries containing trained parameters
+        other epoch parameters (accuracy, epoch number)
+    Outputs:
+        single dictionary concatenating all information to be saved
+    '''
+    
+    
+    save_params = {}
+    save_params= dict(epoch = epoch, val_accuracy= true_acc)
+    
+    
+    J_2x2_m = sep_exponentiate(ssn_layer_pars['J_2x2_m'])
+    Jm = dict(J_EE_m= J_2x2_m[0,0], J_EI_m = J_2x2_m[0,1], 
+                              J_IE_m = J_2x2_m[1,0], J_II_m = J_2x2_m[1,1])
+            
+    J_2x2_s = sep_exponentiate(ssn_layer_pars['J_2x2_s'])
+    Js = dict(J_EE_s= J_2x2_s[0,0], J_EI_s = J_2x2_s[0,1], 
+                              J_IE_s = J_2x2_s[1,0], J_II_s = J_2x2_s[1,1])
+            
+    save_params.update(Jm)
+    save_params.update(Js)
+    
+    if 'c_E' in ssn_layer_pars.keys():
+        save_params['c_E'] = ssn_layer_pars['c_E']
+        save_params['c_I'] = ssn_layer_pars['c_I']
+
+   
+    if 'sigma_oris' in ssn_layer_pars.keys():
+
+        if len(ssn_layer_pars['sigma_oris']) ==1:
+            save_params[key] = np.exp(ssn_layer_pars[key])
+        elif np.shape(ssn_layer_pars['sigma_oris'])==(2,2):
+            save_params['sigma_orisEE'] = np.exp(ssn_layer_pars['sigma_oris'][0,0])
+            save_params['sigma_orisEI'] = np.exp(ssn_layer_pars['sigma_oris'][0,1])
+        else:
+            sigma_oris = dict(sigma_orisE = np.exp(ssn_layer_pars['sigma_oris'][0]), sigma_orisI = np.exp(ssn_layer_pars['sigma_oris'][1]))
+            save_params.update(sigma_oris)
+      
+    if 'kappa_pre' in ssn_layer_pars.keys():
+        if np.shape(ssn_layer_pars['kappa_pre']) == (2,2):
+            save_params['kappa_preEE'] = np.tanh(ssn_layer_pars['kappa_pre'][0,0])
+            save_params['kappa_preEI'] = np.tanh(ssn_layer_pars['kappa_pre'][0,1])
+            save_params['kappa_postEE'] = np.tanh(ssn_layer_pars['kappa_post'][0,0])
+            save_params['kappa_postEI'] = np.tanh(ssn_layer_pars['kappa_post'][0,1])
+
+
+        else:
+            save_params['kappa_preE'] = np.tanh(ssn_layer_pars['kappa_pre'][0])
+            save_params['kappa_preI'] = np.tanh(ssn_layer_pars['kappa_pre'][1])
+            save_params['kappa_postE'] = np.tanh(ssn_layer_pars['kappa_post'][0])
+            save_params['kappa_postI'] = np.tanh(ssn_layer_pars['kappa_post'][1])
+    
+    if 'f_E' in ssn_layer_pars.keys():
+
+        save_params['f_E']  = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
+        save_params['f_I']  = np.exp(ssn_layer_pars['f_I'])
+        
+    #Add readout parameters
+    save_params.update(readout_pars)
+
+    return save_params
