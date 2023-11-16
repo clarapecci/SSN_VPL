@@ -108,19 +108,19 @@ class _SSN_Base(object):
 
    ######## USE IN FIXED POINT FUNCTION #################
     
-    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, verbose=True, silent=False, save=None):
+    def fixed_point_r(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False, save=None):
         
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
         if inp_vec.ndim > 1:
             drdt = lambda r : self.drdt_multi(r, inp_vec)
-        r_fp, CONVG, avg_dx = self.Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, save=save)
+        r_fp, avg_dx = self.Euler2fixedpt_fullTmax(drdt, r_init, Tmax, dt, xtol=xtol, PLOT=PLOT, save=save)
 
-        return r_fp, CONVG, avg_dx
+        return r_fp, avg_dx
 
 ############################################################    
-    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, verbose=True, silent=False, save = None, inds=None, print_dt = False):
+    def fixed_point_r_plot(self, inp_vec, r_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=True, save = None, inds=None, print_dt = False):
         if r_init is None:
             r_init = np.zeros(inp_vec.shape) # np.zeros((self.N,))
         drdt = lambda r : self.drdt(r, inp_vec)
@@ -196,7 +196,6 @@ class _SSN_Base(object):
         avg_dx = y[int(Nmax/2):int(Nmax)].mean()/xtol
         
         #CONVG = np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol
-        CONVG = False ##NEEDS UPDATING
         
         if PLOT:
             import matplotlib.pyplot as plt
@@ -210,7 +209,7 @@ class _SSN_Base(object):
             plt.close()
         
         
-        return xvec, CONVG, avg_dx
+        return xvec, avg_dx
 
 
 ##############################################################        
@@ -452,7 +451,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
 
     
     
-    def create_gabor_filters(self):#(self, edge_deg, k, sigma_g, conv_factor, degree_per_pixel, gE = 1, gI = 1, A=None):
+    def create_gabor_filters(self):
         
         #Create array of filters
         e_filters=[] 
@@ -498,7 +497,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
             
         
         if self.A == None:
-            A= find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
+            A= find_A(return_all =False, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()))
             self.A = A
             
         
@@ -507,7 +506,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         
         if self.phases ==4:
             if self.A2 ==None:
-                A2 = find_A(return_all =False, conv_factor=self.conv_factor, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()), phase = np.pi/2)
+                A2 = find_A(return_all =False, k=self.k_filt, sigma_g=self.sigma_g, edge_deg=self.edge_deg,  degree_per_pixel=self.degree_per_pixel, indices=np.sort(self.ori_map.ravel()), phase = np.pi/2)
                 self.A2 = A2
                 
                 
