@@ -21,28 +21,28 @@ import time
 #from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 import numpy
-from util import create_gratings
 from two_layer_training_lateral_phases import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point, model, generate_noise
 from SSN_classes_jax_on_only import SSN2DTopoV1
 from SSN_classes_phases import SSN2DTopoV1_ONOFF_local
 from matplotlib.colors import hsv_to_rgb
+import matplotlib.patches as mpatches
 
 
-def plot_training_accs(training_accs, epoch_c = None, save=None):
+def plot_training_accs(training_accs, epochs_plot = None, save=None):
     
-    plt.plot(training_accs)
+    plt.plot(np.linspace(1, len(training_accs),len(training_accs)), training_accs)
     plt.xlabel('Epoch')
     plt.ylabel('Training accuracy')
     
-    if epoch_c==None:
+    if epochs_plot==None:
                 pass
     else:
-        if np.isscalar(epoch_c):
-            plt.axvline(x=epoch_c, c = 'r')
+        if np.isscalar(epochs_plot):
+            plt.axvline(x=epochs_plot, c = 'r')
         else:
-            plt.axvline(x=epoch_c[0], c = 'r')
-            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
-            plt.axvline(x=epoch_c[2], c='r')
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[1], c='r')
+            #plt.axvline(x=epochs_plot[2], c='r')
     
     if save:
             plt.savefig(save+'.png')
@@ -50,19 +50,19 @@ def plot_training_accs(training_accs, epoch_c = None, save=None):
     plt.close() 
     
 
-def plot_w_sig(w_sig, epoch_c = None, save=None):
+def plot_w_sig(w_sig, epochs_plot = None, save=None):
     
     plt.plot(w_sig.T)
     plt.xlabel('Epoch')
     plt.ylabel('Values of w')
-    if epoch_c==None:
+    if epochs_plot==None:
         pass
     else:
-        if np.isscalar(epoch_c):
-            plt.axvline(x=epoch_c, c = 'r')
+        if np.isscalar(epochs_plot):
+            plt.axvline(x=epochs_plot, c = 'r')
         else:
-            plt.axvline(x=epoch_c[0], c = 'r')
-            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[1], c='r')
         
     if save:
             plt.savefig(save+'.png')
@@ -70,7 +70,7 @@ def plot_w_sig(w_sig, epoch_c = None, save=None):
     plt.close()
     
 
-def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epoch_c = None, save=None):
+def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epochs_plot = None, save=None):
     
     #Find maximum and minimum of 
     max_train_sig_input = [item.max() for item in train_sig_input]
@@ -94,7 +94,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
 
     #Create plots 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
-    #axes.vlines(x=epoch_c)
+    #axes.vlines(x=epochs_plot)
 
     axes[0,0].plot(max_train_sig_input, label='Max')
     axes[0,0].plot(mean_train_sig_input, label = 'Mean')
@@ -102,7 +102,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[0,0].set_xlabel('Epoch')
     axes[0,0].legend()
     axes[0,0].set_title('Input to sigmoid layer (training) ')
-    #axes[0,0].vlines(x=epoch_c)
+    #axes[0,0].vlines(x=epochs_plot)
 
     axes[0,1].plot(epochs_to_plot, max_val_sig_input, label='Max')
     axes[0,1].plot(epochs_to_plot, mean_val_sig_input, label = 'Mean')
@@ -110,7 +110,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[0,1].set_xlabel('Epoch')
     axes[0,1].legend()
     axes[0,1].set_title('Input to sigmoid layer (validation)')
-    #axes[0,1].vlines(x=epoch_c)
+    #axes[0,1].vlines(x=epochs_plot)
 
     axes[1,0].plot( max_train_sig_output, label='Max')
     axes[1,0].plot( mean_train_sig_output, label = 'Mean')
@@ -118,7 +118,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[1,0].set_xlabel('Epoch')
     axes[1,0].legend()
     axes[1,0].set_title('Output of sigmoid layer (training)')
-    #axes[1,0].vlines(x=epoch_c)
+    #axes[1,0].vlines(x=epochs_plot)
 
     axes[1,1].plot(epochs_to_plot, max_val_sig_output, label='Max')
     axes[1,1].plot(epochs_to_plot, mean_val_sig_output, label = 'Mean')
@@ -126,18 +126,18 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     axes[1,1].set_xlabel('Epoch')
     axes[1,1].legend()
     axes[1,1].set_title('Output to sigmoid layer (validation)')
-    #axes[1,1].vlines(x=epoch_c)
+    #axes[1,1].vlines(x=epochs_plot)
 
     fig.subplots_adjust(wspace=0.4, hspace=0.4)
     
-    if epoch_c==None:
+    if epochs_plot==None:
                 pass
     else:
-        if np.isscalar(epoch_c):
-            plt.axvline(x=epoch_c, c = 'r')
+        if np.isscalar(epochs_plot):
+            plt.axvline(x=epochs_plot, c = 'r')
         else:
-            plt.axvline(x=epoch_c[0], c = 'r')
-            plt.axvline(x=epoch_c[0]+epoch_c[1], c='r')
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[1], c='r')
     
     if save:
             fig.savefig(save+'.png')
@@ -145,7 +145,7 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
     plt.close()
 
 
-def plot_results(results_filename, bernoulli=True, epoch_c = None, save=None, norm_w = False):
+def plot_results(results_filename, bernoulli=True, epochs_plot = None, save=None, norm_w = False):
     '''
     Read csv file with results and plot parameters against epochs. Option to plot norm of w if it is saved. 
     '''
@@ -174,55 +174,12 @@ def plot_results(results_filename, bernoulli=True, epoch_c = None, save=None, no
             results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[1,1])
     else:
             results.plot(x='epoch', y = ['val_accuracy'], ax = axes[1,1])
-            if epoch_c:
-                plt.axvline(x=epoch_c, c = 'r')
+            if epochs_plot:
+                plt.axvline(x=epochs_plot, c = 'r')
     if save:
             fig.savefig(save+'.png')
     fig.show()
     plt.close()
-
-
-    
-    
-def param_ratios(results_file):
-    results = pd.read_csv(results_file, header = 0)
-    
-    if 'J_EE' in results.columns:
-        Js = results[['J_EE', 'J_EI', 'J_IE', 'J_II']]
-        Js = Js.to_numpy()
-        print("J ratios = ", np.array((Js[-1,:]/Js[0,:] -1)*100, dtype=int))
-
-    if 's_EE' in results.columns:
-        ss = results[['s_EE', 's_EI', 's_IE', 's_II']]
-        ss = ss.to_numpy()
-        print("s ratios = ", np.array((ss[-1,:]/ss[0,:] -1)*100, dtype=int))
-
-    if 'c_E' in results.columns:
-        cs = results[["c_E", "c_I"]]
-        cs = cs.to_numpy()
-        print("c ratios = ", np.array((cs[-1,:]/cs[0,:] -1)*100, dtype=int))
-        
-    if 'sigma_orisE' in results.columns:
-        sigma_oris = results[["sigma_orisE", "sigma_orisI"]]
-        sigma_oris = sigma_oris.to_numpy()
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
-        
-    if 'kappa_preE' in results.columns:
-        kappa_pre = results[["kappa_preE", "kappa_preI"]]
-        kappa_pre = kappa_pre.to_numpy()
-        print("kappa_pre ratios = ", np.array((kappa_pre[-1,:]/kappa_pre[0,:] -1)*100, dtype=int))
-    
-    if 'kappa_postE' in results.columns:
-        kappa_post = results[["kappa_postE", "kappa_postI"]]
-        kappa_post = kappa_post.to_numpy()
-        print("kappa_post ratios = ", np.array((kappa_post[-1,:]/kappa_post[0,:] -1)*100, dtype=int))
-    
-    if 'sigma_oris' in results.columns:
-        sigma_oris = results[["sigma_oris"]]
-        sigma_oris = sigma_oris.to_numpy()
-        
-        
-        print("sigma_oris ratios = ", np.array((sigma_oris[-1,:]/sigma_oris[0,:] -1)*100, dtype=int))
 
         
 def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
@@ -298,7 +255,7 @@ def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
         print('kappas = ', kappas[epoch_index, :])
         
 
-def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_c=None, norm_w=False, param_sum = False):
+def plot_results_two_layers(results_filename, bernoulli=False, save=None, epochs_plot=None, norm_w=False, param_sum = False):
     
     results = pd.read_csv(results_filename, header = 0)
 
@@ -365,14 +322,14 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_
     else:
             results.plot(x='epoch', y = ['val_accuracy'], ax = axes[2,0])
             #If passed criterion, plot both lines
-            if epoch_c==None:
+            if epochs_plot==None:
                 pass
             else:
-                if np.isscalar(epoch_c):
-                    axes[2,0].axvline(x=epoch_c, c = 'r')
+                if np.isscalar(epochs_plot):
+                    axes[2,0].axvline(x=epochs_plot, c = 'r')
                 else:
-                    axes[2,0].axvline(x=epoch_c[0], c = 'r')
-                    axes[2,0].axvline(x=epoch_c[0]+epoch_c[1], c='r')
+                    axes[2,0].axvline(x=epochs_plot[0], c = 'r')
+                    axes[2,0].axvline(x=epochs_plot[1], c='r')
     if save:
             fig.savefig(save+'.png')
     fig.show()
@@ -402,27 +359,16 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epoch_
 
 
         
-       
-    
-def plot_losses(training_losses, validation_losses, epochs_to_save, epoch_c = None, save=None):
-    plt.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
-    plt.plot(epochs_to_save, validation_losses, label='Validation')
-    plt.legend()
-    plt.title('Training losses')
-    if epoch_c:
-        plt.axvline(x=epoch_c, c='r')
-    if save:
-        plt.savefig(save+'.png')
-    plt.show()
-    plt.close()
-    
 
-def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, save=None, inset = None):
+
+def plot_losses_two_stage(training_losses, val_loss_per_epoch, epochs_plot = None, save=None, inset = None):
     
     fig, axs1 = plt.subplots()
-    axs1.plot(training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
+    axs1.plot(np.linspace(1, len(training_losses.T), len(training_losses.T)), training_losses.T, label = ['Binary cross entropy', 'Avg_dx', 'R_max', 'w', 'b', 'Training total'] )
     axs1.plot(val_loss_per_epoch[:,1], val_loss_per_epoch[:,0], label='Validation')
     axs1.legend()
+    axs1.set_xlabel('Epochs')
+    axs1.set_ylabel('Loss')
     axs1.set_title('Training losses')
     
     
@@ -434,21 +380,21 @@ def plot_losses_two_stage(training_losses, val_loss_per_epoch, epoch_c = None, s
         ax2.plot(training_losses[0, :], label = 'Binary loss')
         ax2.legend()
 
-    if epoch_c==None:
+    if epochs_plot==None:
                 pass
     else:
-        if np.isscalar(epoch_c):
-            axs1.axvline(x=epoch_c, c = 'r')
+        if np.isscalar(epochs_plot):
+            axs1.axvline(x=epochs_plot, c = 'r')
             if inset:
-                ax2.axvline(x=epoch_c, c = 'r') 
+                ax2.axvline(x=epochs_plot, c = 'r') 
         else:
-            axs1.axvline(x=epoch_c[0], c = 'r')
-            axs1.axvline(x=epoch_c[0]+epoch_c[1], c='r')
-            axs1.axvline(x=epoch_c[2], c='r')
+            axs1.axvline(x=epochs_plot[0], c = 'r')
+            axs1.axvline(x=epochs_plot[1], c='r')
+            #axs1.axvline(x=epochs_plot[2], c='r')
             if inset:
-                ax2.axvline(x=epoch_c[0], c = 'r') 
-                ax2.axvline(x=epoch_c[0]+epoch_c[1], c='r') 
-                axs1.axvline(x=epoch_c[2], c='r')
+                ax2.axvline(x=epochs_plot, c = 'r') 
+                ax2.axvline(x=epochs_plot[1], c='r') 
+                #as1.axvline(x=epochs_plot[2], c='r')
 
     fig.show()
     if save:
@@ -950,7 +896,7 @@ def plot_individual_gabor(ax, fp, ssn, index):
     ax.set_title('ori '+str(ssn.ori_vec[index])+' ' +str(label_neuron(index)))
     return ax
 
-def plot_tuning_curves(ssn, index, conv_pars, stimuli_pars, offset = 4, all_responses = None, save_fig = None):
+def plot_tuning_curves_ssn(ssn, index, conv_pars, stimuli_pars, offset = 4, all_responses = None, save_fig = None):
      
         print('Neuron preferred orientation: ', str(ssn.ori_vec[index]))
        
@@ -1004,10 +950,10 @@ def pre_post_bar_plots(neuron_indices, pre_vec, post_vec, yaxis = None, saving_d
     
 def full_width_half_max(vector, d_theta):
     
+    #Remove baseline
     vector = vector-vector.min()
     half_height = vector.max()/2
     points_above = len(vector[vector>half_height])
-   
 
     distance = d_theta * points_above
     
@@ -1112,3 +1058,60 @@ def plot_close_far(E_pre, E_post, I_pre, I_post, e_close, e_far, i_close, i_far,
     if save:
             plt.savefig(os.path.join(save, title+'.png'))
     fig.show()
+
+    
+def plot_pre_post_scatter(x_axis, y_axis, orientations, indices_to_plot, title, save_dir = None):
+    
+    '''
+    Create scatter plot for pre and post training responses. Colour represents preferred orientation according to Schoups et al bins
+    '''
+    
+    #Create legend
+    patches = []
+    cmap = plt.get_cmap('rainbow')
+    colors = numpy.flip(cmap(numpy.linspace(0,1, 8)), axis = 0)
+    bins = ['0-4', '4-12', '12-20', '20-28', '28-36', '36-44', '44-50', '+50']
+    for j in range(0,len(colors)):
+        patches.append(mpatches.Patch(color=colors[j], label=bins[j]))
+    
+    #Iterate through required neurons
+    for idx in indices_to_plot:
+        #Select bin and colour
+        if np.abs(orientations[idx]) <4:
+            colour = colors[0]
+            label = bins[0]
+        elif np.abs(orientations[idx]) >50:
+            colour = colors[-1]
+            label = bins[-1]
+        else:
+            colour = colors[int(1+np.floor((np.abs(orientations[idx]) -4)/8) )]
+            label = bins[int(1+np.floor((np.abs(orientations[idx]) -4)/8) )]
+        plt.scatter(x = x_axis[idx], y =y_axis[idx], color =colour, label = label )
+    
+    #Plot x = y line
+    xpoints = ypoints = plt.xlim()
+    plt.plot(xpoints, ypoints, linestyle='--', color='gold')
+    plt.xlabel('Pre training')
+    plt.ylabel('Post training')
+    plt.title(title)
+    plt.legend(handles = patches, loc = 'upper right', bbox_to_anchor=(1.3, 1.0), title = 'Pref ori - train ori')
+    if save_dir:
+        plt.savefig(os.path.join(save_dir, str(title)+'.png'), bbox_inches='tight')
+    plt.show()
+    
+    
+def avg_slope(vector, x_axis, x1, x2, normalised=False):
+    '''
+    Calculates average slope between points x1 and x2. x1 and x2  given in absolute values, then converted to indices in function 
+    '''
+    #Remove baseline if normalising
+    if normalised == True:
+        vector = (vector - vector.min())/vector.max()
+    
+    #Find indices corresponding to desired x values
+    idx_1 = (np.abs(x_axis - x1)).argmin()
+    idx_2 = (np.abs(x_axis - x2)).argmin()
+    
+    grad =(np.abs(vector[idx_2] - vector[idx_1]))/(x2-x1)
+    
+    return grad
