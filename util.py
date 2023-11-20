@@ -121,7 +121,7 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
     print(xvec.max(), np.argmax(xvec))
     return xvec, CONVG
 
-
+####### TRAINING SUPPLMENTARY FUNCTIONS ######
 
 def take_log(J_2x2):
     
@@ -129,6 +129,123 @@ def take_log(J_2x2):
     logJ_2x2 =np.log(J_2x2*signs)
     
     return logJ_2x2
+
+def sep_exponentiate(J_s):
+    signs=np.array([[1, -1], [1, -1]]) 
+    new_J =np.exp(J_s)*signs
+
+    return new_J
+
+
+def constant_to_vec(c_E, c_I, ssn, sup = False):
+    
+    edge_length = ssn.grid_pars.gridsize_Nx
+
+    matrix_E = np.ones((edge_length, edge_length)) * c_E
+    vec_E = np.ravel(matrix_E)
+    
+    matrix_I = np.ones((edge_length, edge_length))* c_I
+    vec_I = np.ravel(matrix_I)
+    
+    constant_vec = np.hstack((vec_E, vec_I, vec_E, vec_I))
+  
+    if sup==False and ssn.phases ==4:
+        constant_vec = np.kron(np.asarray([1,1]), constant_vec)
+
+    if sup:
+        constant_vec = np.hstack((vec_E, vec_I))
+        
+    return constant_vec
+
+
+def sigmoid(x, epsilon = 0.01):
+    '''
+    Introduction of epsilon stops asymptote from reaching 1 (avoids NaN)
+    '''
+    return (1 - 2*epsilon)*sig(x) + epsilon
+
+
+def sig(x):
+    return 1/(1+np.exp(-x))
+
+
+def f_sigmoid(x, a = 0.75):
+    return (1.25-a) + 2*a*sig(x)
+
+def binary_loss(n, x):
+    return - (n*np.log(x) + (1-n)*np.log(1-x))
+
+def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
+    
+    '''
+    Assemble trained parameters and epoch information into single dictionary for saving
+    Inputs:
+        dictionaries containing trained parameters
+        other epoch parameters (accuracy, epoch number)
+    Outputs:
+        single dictionary concatenating all information to be saved
+    '''
+    
+    
+    save_params = {}
+    save_params= dict(epoch = epoch, val_accuracy= true_acc)
+    
+    
+    J_2x2_m = sep_exponentiate(ssn_layer_pars['logJ_2x2'][0])
+    Jm = dict(J_EE_m= J_2x2_m[0,0], J_EI_m = J_2x2_m[0,1], 
+                              J_IE_m = J_2x2_m[1,0], J_II_m = J_2x2_m[1,1])
+            
+    J_2x2_s = sep_exponentiate(ssn_layer_pars['logJ_2x2'][1])
+    Js = dict(J_EE_s= J_2x2_s[0,0], J_EI_s = J_2x2_s[0,1], 
+                              J_IE_s = J_2x2_s[1,0], J_II_s = J_2x2_s[1,1])
+            
+    save_params.update(Jm)
+    save_params.update(Js)
+    
+    if 'c_E' in ssn_layer_pars.keys():
+        save_params['c_E'] = ssn_layer_pars['c_E']
+        save_params['c_I'] = ssn_layer_pars['c_I']
+
+   
+    if 'sigma_oris' in ssn_layer_pars.keys():
+
+        if len(ssn_layer_pars['sigma_oris']) ==1:
+            save_params[key] = np.exp(ssn_layer_pars[key])
+        elif np.shape(ssn_layer_pars['sigma_oris'])==(2,2):
+            save_params['sigma_orisEE'] = np.exp(ssn_layer_pars['sigma_oris'][0,0])
+            save_params['sigma_orisEI'] = np.exp(ssn_layer_pars['sigma_oris'][0,1])
+        else:
+            sigma_oris = dict(sigma_orisE = np.exp(ssn_layer_pars['sigma_oris'][0]), sigma_orisI = np.exp(ssn_layer_pars['sigma_oris'][1]))
+            save_params.update(sigma_oris)
+      
+    if 'kappa_pre' in ssn_layer_pars.keys():
+        if np.shape(ssn_layer_pars['kappa_pre']) == (2,2):
+            save_params['kappa_preEE'] = np.tanh(ssn_layer_pars['kappa_pre'][0,0])
+            save_params['kappa_preEI'] = np.tanh(ssn_layer_pars['kappa_pre'][0,1])
+            save_params['kappa_postEE'] = np.tanh(ssn_layer_pars['kappa_post'][0,0])
+            save_params['kappa_postEI'] = np.tanh(ssn_layer_pars['kappa_post'][0,1])
+
+
+        else:
+            save_params['kappa_preE'] = np.tanh(ssn_layer_pars['kappa_pre'][0])
+            save_params['kappa_preI'] = np.tanh(ssn_layer_pars['kappa_pre'][1])
+            save_params['kappa_postE'] = np.tanh(ssn_layer_pars['kappa_post'][0])
+            save_params['kappa_postI'] = np.tanh(ssn_layer_pars['kappa_post'][1])
+    
+    if 'f_E' in ssn_layer_pars.keys():
+
+        save_params['f_E']  = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
+        save_params['f_I']  = np.exp(ssn_layer_pars['f_I'])
+        
+    #Add readout parameters
+    save_params.update(readout_pars)
+
+    return save_params
+
+
+
+
+
 
 make_J2x2_o = lambda Jee, Jei, Jie, Jii: np.array([[Jee, -Jei], [Jie,  -Jii]])
 
