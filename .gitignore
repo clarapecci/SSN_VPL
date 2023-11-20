@@ -1,0 +1,16 @@
+results/
+orientation_maps/
+figures/
+requirements/
+*.png
+__pycache__/
+*.npy
+*.jpeg
+.ipynb_checkpoints/
+*.ipynb
+!network_example.ipynb
+gauss_tuning_curves/
+LICENSE
+old_files/
+*.txt
+env/
