@@ -88,16 +88,16 @@ def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, const
     SSN_mid_input = np.maximum(0, SSN_mid_input) + constant_vector_mid
     
     #Calculate steady state response of middle layer
-    r_mid, r_max_mid, avg_dx_mid, _, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_m, SSN_mid_input, conv_pars, return_fp = True)
+    r_mid, r_max_mid, avg_dx_mid, fp_mid, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_m, SSN_mid_input, conv_pars, return_fp = True)
     
     
     #Concatenate input to superficial layer
     sup_input_ref = np.hstack([r_mid*f_E, r_mid*f_I]) + constant_vector_sup
 
     #Calculate steady state response of superficial layer
-    r_sup, r_max_sup, avg_dx_sup, _, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_s, sup_input_ref, conv_pars, return_fp= True)
+    r_sup, r_max_sup, avg_dx_sup, fp_sup, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_s, sup_input_ref, conv_pars, return_fp= True)
     
-    return r_sup, [r_max_mid, r_max_sup], [avg_dx_mid, avg_dx_sup], [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
+    return r_sup, [r_max_mid, r_max_sup], [avg_dx_mid, avg_dx_sup], [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup]
 
 
                     
@@ -115,20 +115,18 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     
     logJ_2x2_m = ssn_layer_pars['J_2x2_m']
     logJ_2x2_s = ssn_layer_pars['J_2x2_s']
-    c_E = constant_pars.c_E #ssn_layer_pars['c_E']
-    c_I = constant_pars.c_I  #ssn_layer_pars['c_I']
-    f_E = constant_pars.f_E# np.exp(ssn_layer_pars['f_E'])
-    f_I = constant_pars.f_I #np.exp(ssn_layer_pars['f_I'])
-    kappa_pre = constant_pars.kappa_pre # np.tanh(ssn_layer_pars['kappa_pre'])
-    kappa_post = constant_pars.kappa_post #np.tanh(ssn_layer_pars['kappa_post'])
+    c_E = ssn_layer_pars['c_E']
+    c_I = ssn_layer_pars['c_I']
+    f_E = np.exp(ssn_layer_pars['f_E'])
+    f_I = np.exp(ssn_layer_pars['f_I'])
+    kappa_pre =  np.tanh(ssn_layer_pars['kappa_pre'])
+    kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
     
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
     
     J_2x2_m = sep_exponentiate(logJ_2x2_m)
     J_2x2_s = sep_exponentiate(logJ_2x2_s)
-    
-    print(w_sig)
     
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = constant_pars.ref_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
@@ -142,10 +140,10 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
     
     #Run reference through two layer model
-    r_ref, [r_max_ref_mid, r_max_ref_sup], [avg_dx_ref_mid, avg_dx_ref_sup],[max_E_mid, max_I_mid, max_E_sup, max_I_sup] = two_layer_model(ssn_mid, ssn_sup, train_data['ref'], conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
+    r_ref, [r_max_ref_mid, r_max_ref_sup], [avg_dx_ref_mid, avg_dx_ref_sup],[max_E_mid, max_I_mid, max_E_sup, max_I_sup], _ = two_layer_model(ssn_mid, ssn_sup, train_data['ref'], conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
     
     #Run target through two layer model
-    r_target, [r_max_target_mid, r_max_target_sup], [avg_dx_target_mid, avg_dx_target_sup], _= two_layer_model(ssn_mid, ssn_sup, train_data['target'], conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
+    r_target, [r_max_target_mid, r_max_target_sup], [avg_dx_target_mid, avg_dx_target_sup], _, _= two_layer_model(ssn_mid, ssn_sup, train_data['target'], conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
     
     noise_type = constant_pars.noise_type
     #Add noise
@@ -188,13 +186,36 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
 
 #Parallelize orientation discrimination task
 vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
-
-vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
-
-
-#Jit vmap function
 jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2, 3, 4])
+
+#Parallelize orientation discrimination task - frozen parameters
+vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, static_argnums = [2, 3, 4])
+
+
+def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target):
+    
+    '''
+    Run orientation discrimination task on given batch of data. Returns losses averaged over the trials within the batch. Function over which the gradient is taken.
+    '''
+    
+    #Run orientation discrimination task
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+    
+    #Total loss to take gradient with respect to 
+    loss= np.mean(total_loss)
+    
+    #Find mean of different losses
+    all_losses = np.mean(all_losses, axis = 0)
+    
+    #Find maximum rates across trials
+    max_rates = [item.max() for item in max_rates]
+    
+    #Calculate accuracy 
+    true_accuracy = np.sum(train_data['label'] == pred_label)/len(train_data['label'])  
+    
+    return loss, [all_losses, true_accuracy, sig_input, x, max_rates]
+
 
 
 def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=None, print_dt = False):
@@ -240,29 +261,6 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
     else:
         return r_box, r_max, avg_dx
 
-
-def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target):
-    
-    '''
-    Run orientation discrimination task on given batch of data. Returns losses averaged over the trials within the batch. Function over which the gradient is taken.
-    '''
-    
-    #Run orientation discrimination task
-    total_loss, all_losses, pred_label, sig_input, x, max_rates = vmap_ori_discrimination_frozen_pars(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
-    
-    #Total loss to take gradient with respect to 
-    loss= np.mean(total_loss)
-    
-    #Find mean of different losses
-    all_losses = np.mean(all_losses, axis = 0)
-    
-    #Find maximum rates across trials
-    max_rates = [item.max() for item in max_rates]
-    
-    #Calculate accuracy 
-    true_accuracy = np.sum(train_data['label'] == pred_label)/len(train_data['label'])  
-    
-    return loss, [all_losses, true_accuracy, sig_input, x, max_rates]
 
 
 
@@ -553,3 +551,71 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     save_params.update(readout_pars)
 
     return save_params
+
+
+
+
+def response_matrix(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_ssn_pars, tuning_pars, radius_list, ori_list, ssn_ori_map, trained_ori):
+    '''
+    Construct a response matrix of sizze n_orientations x n_neurons x n_radii
+    '''
+    #Initialize ssn
+    
+    ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
+    ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = constant_pars.ref_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
+
+    responses_sup = []
+    responses_mid = []
+    inputs = []
+    constant_vector_imd = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
+    constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
+    
+    for i in range(len(ori_list)):
+        
+        #Find responses at different stimuli radii
+        x_response_sup, x_response_mid, SSN_input = surround_suppression(ssn_mid, ssn_sup, tuning_pars, constant_ssn_pars.conv_pars, radius_list, constant_vector_mid, constant_vector_sup, f_E, f_I, ref_ori = ori_list[i])
+        print(x_response_sup.shape)
+        inputs.append(SSN_input)
+        responses_sup.append(x_response_sup)
+        responses_mid.append(x_response_mid)
+        
+    return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2), np.vstack([inputs]), ssn_mid
+
+
+
+
+def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, constant_vector_mid, constant_vector_sup, f_E, f_I, ref_ori, title= None):    
+    
+    '''
+    Produce matrix response for given two layer ssn network given a list of varying stimuli radii
+    '''
+    
+    all_responses_sup = []
+    all_responses_mid = []
+    
+    tuning_pars.ref_ori = ref_ori
+   
+    print(ref_ori) #create stimuli in the function just input radii)
+    for radii in radius_list:
+        
+        tuning_pars.outer_radius = radii
+        tuning_pars.inner_radius = radii*(2.5/3)
+        
+        stimuli = create_grating_single(n_trials = 1, stimuli_pars = tuning_pars)
+        stimuli = stimuli.squeeze()
+        
+        r_sup, _, _, [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup] = two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
+
+        all_responses_sup.append(fp_sup.ravel())
+        all_responses_mid.append(fp_mid.ravel())
+        print('Mean population response {} (max in population {}), centre neurons {}'.format(fp_sup.mean(), fp_sup.max(), fp_sup.mean()))
+    
+    if title:
+        plt.plot(radius_list, np.asarray(all_responses))
+        plt.xlabel('Radius')
+        plt.ylabel('Response of centre neuron')
+        if title:
+            plt.title(title)
+        plt.show()
+    
+    return np.vstack(all_responses_sup), np.vstack(all_responses_mid), SSN_input_ref
