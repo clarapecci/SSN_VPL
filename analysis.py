@@ -1,29 +1,17 @@
 import os
 import matplotlib.pyplot as plt
-import time, os, json
+import time, os
 import pandas as pd
-from scipy import stats 
-from tqdm import tqdm
-import seaborn as sns
 import jax
-
 from jax import random
-from jax.config import config 
 import jax.numpy as np
 from jax import vmap
-import pdb
-import optax
-from functools import partial
 from pdb import set_trace
-import math
-import csv
 import time
-#from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 import numpy
-from two_layer_training_lateral_phases import exponentiate, constant_to_vec, create_data, obtain_fixed_point, exponentiate, take_log, middle_layer_fixed_point, model, generate_noise
-from SSN_classes_jax_on_only import SSN2DTopoV1
-from SSN_classes_phases import SSN2DTopoV1_ONOFF_local
+from util  import constant_to_vec, create_grating_pairs
+from model import generate_noise
 from matplotlib.colors import hsv_to_rgb
 import matplotlib.patches as mpatches
 
@@ -50,25 +38,7 @@ def plot_training_accs(training_accs, epochs_plot = None, save=None):
     plt.close() 
     
 
-def plot_w_sig(w_sig, epochs_plot = None, save=None):
-    
-    plt.plot(w_sig.T)
-    plt.xlabel('Epoch')
-    plt.ylabel('Values of w')
-    if epochs_plot==None:
-        pass
-    else:
-        if np.isscalar(epochs_plot):
-            plt.axvline(x=epochs_plot, c = 'r')
-        else:
-            plt.axvline(x=epochs_plot[0], c = 'r')
-            plt.axvline(x=epochs_plot[1], c='r')
-        
-    if save:
-            plt.savefig(save+'.png')
-    plt.show()
-    plt.close()
-    
+
 
 def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_sig_output, epochs_plot = None, save=None):
     
@@ -822,37 +792,10 @@ def plot_vec2map(ssn, fp, save_fig=False):
     
     plt.close()
   
-    
 
 
-def ori_tuning_curve_responses(ssn, conv_pars, stimuli_pars, index = None, offset = 4, c_E = 5, c_I = 5):
-    
-    all_responses = []
-    ori_list = np.linspace(0, 180, 18*2+1)
-    
-    #Add preferred orientation 
-    if index:
-        ori_list = np.unique(np.insert(ori_list, 0, ssn.ori_vec[index]).sort())
-    
-    #Obtain response for different orientations
-    for ori in ori_list:
-        stimulus_data = create_data(stimuli_pars, number = 1, offset = offset, ref_ori = ori)
-        constant_vector = constant_to_vec(c_E, c_I, ssn)
-    
-        output_ref=np.matmul(ssn.gabor_filters, stimulus_data['ref'].squeeze()) 
-       
-        #Rectify output
-        SSN_input_ref=np.maximum(0, output_ref) +  constant_vector
-        
-        r_init = np.zeros(SSN_input_ref.shape[0])
-        fp, _ = obtain_fixed_point(ssn, SSN_input_ref, conv_pars)
-        
-        if index==None:
-            all_responses.append(fp)
-        else: 
-            all_responses.append(fp[index])
-        
-    return np.vstack(all_responses), ori_list
+
+
 
 
 
@@ -896,35 +839,11 @@ def plot_individual_gabor(ax, fp, ssn, index):
     ax.set_title('ori '+str(ssn.ori_vec[index])+' ' +str(label_neuron(index)))
     return ax
 
-def plot_tuning_curves_ssn(ssn, index, conv_pars, stimuli_pars, offset = 4, all_responses = None, save_fig = None):
-     
-        print('Neuron preferred orientation: ', str(ssn.ori_vec[index]))
-       
-        if all_responses!=None:
-            pass
-        else:
-            all_responses, ori_list = ori_tuning_curve_responses(ssn = ssn, index = index, conv_pars = conv_pars, stimuli_pars = stimuli_pars, offset = offset)
-        
 
-        plt.plot(ori_list, all_responses)
-        plt.axvline(x = ssn.ori_vec[index], linestyle = 'dashed', c='r', label= 'Pref ori')
-        plt.xlabel('Stimulus orientations')
-        plt.ylabel('Response')
-        plt.title('Neuron type ' +str(label_neuron(index)))
-        plt.legend()
-        if save_fig:
-            plt.savefig(save_fig+'.png')
-        plt.show()
-        plt.close()
-        
-        return all_responses
-    
 def label_neuron(index):
     
     labels = ['E_ON', 'I_ON', 'E_OFF', 'I_OFF']
     return  labels[int(np.floor(index/81))]
-
-
 
 
 def pre_post_bar_plots(neuron_indices, pre_vec, post_vec, yaxis = None, saving_dir = None):

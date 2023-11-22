@@ -12,12 +12,11 @@ import csv
 from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
-from util import create_grating_pairs
+from util import create_grating_pairs, create_grating_single
 
 from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage
 
-from two_layer_training_lateral_phases import plot_max_rates, plot_w_sig
-
+numpy.random.seed(0)
 
 
 def generate_noise(sig_noise,  batch_size, length):
@@ -82,21 +81,19 @@ def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, const
     '''
     
     #Find input of middle layer
-    SSN_mid_input=np.matmul(ssn_m.gabor_filters, stimuli)
+    stimuli_gabor=np.matmul(ssn_m.gabor_filters, stimuli)
  
     #Rectify input
-    SSN_mid_input = np.maximum(0, SSN_mid_input) + constant_vector_mid
+    SSN_mid_input = np.maximum(0, stimuli_gabor) + constant_vector_mid
     
     #Calculate steady state response of middle layer
     r_mid, r_max_mid, avg_dx_mid, fp_mid, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_m, SSN_mid_input, conv_pars, return_fp = True)
     
-    
     #Concatenate input to superficial layer
     sup_input_ref = np.hstack([r_mid*f_E, r_mid*f_I]) + constant_vector_sup
-
+    
     #Calculate steady state response of superficial layer
     r_sup, r_max_sup, avg_dx_sup, fp_sup, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_s, sup_input_ref, conv_pars, return_fp= True)
-    
     return r_sup, [r_max_mid, r_max_sup], [avg_dx_mid, avg_dx_sup], [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup]
 
 
@@ -119,7 +116,7 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     c_I = ssn_layer_pars['c_I']
     f_E = np.exp(ssn_layer_pars['f_E'])
     f_I = np.exp(ssn_layer_pars['f_I'])
-    kappa_pre =  np.tanh(ssn_layer_pars['kappa_pre'])
+    kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
     kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
     
     w_sig = readout_pars['w_sig']
@@ -127,7 +124,6 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     
     J_2x2_m = sep_exponentiate(logJ_2x2_m)
     J_2x2_s = sep_exponentiate(logJ_2x2_s)
-    
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = constant_pars.ref_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
     
@@ -184,13 +180,16 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
 
 
 
+
 #Parallelize orientation discrimination task
 vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2, 3, 4])
 
+
 #Parallelize orientation discrimination task - frozen parameters
 vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, static_argnums = [2, 3, 4])
+
 
 
 def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target):
@@ -200,7 +199,7 @@ def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_p
     '''
     
     #Run orientation discrimination task
-    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = vmap_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
     
     #Total loss to take gradient with respect to 
     loss= np.mean(total_loss)
@@ -428,7 +427,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
          
         #Run model and calculate gradient    
-        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, test_data, noise_ref, noise_target)
+        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
         
         #Save training losses
         all_losses = np.hstack((all_losses, epoch_all_losses))
@@ -471,7 +470,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     
     #Plot evolution of w_sig values
     save_w_sigs = np.asarray(np.vstack(save_w_sigs))
-    plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
+    #plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
     
     #Save transition epochs to plot losses and accuracy
     epochs_plot = first_stage_final_epoch
@@ -544,8 +543,8 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     
     if 'f_E' in ssn_layer_pars.keys():
 
-        save_params['f_E']  = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
-        save_params['f_I']  = np.exp(ssn_layer_pars['f_I'])
+        save_params['f_E'] = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
+        save_params['f_I'] = np.exp(ssn_layer_pars['f_I'])
         
     #Add readout parameters
     save_params.update(readout_pars)
@@ -555,31 +554,30 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
 
 
 
-def response_matrix(J_2x2_m, J_2x2_s, s_2x2_s, sigma_oris_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_ssn_pars, tuning_pars, radius_list, ori_list, ssn_ori_map, trained_ori):
+def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_pars, conv_pars, tuning_pars, radius_list, ori_list, trained_ori):
     '''
     Construct a response matrix of sizze n_orientations x n_neurons x n_radii
     '''
     #Initialize ssn
-    
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
-    ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = constant_pars.ref_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
+    ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = trained_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
 
     responses_sup = []
     responses_mid = []
     inputs = []
-    constant_vector_imd = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
+    constant_vector_mid = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
     
     for i in range(len(ori_list)):
         
         #Find responses at different stimuli radii
-        x_response_sup, x_response_mid, SSN_input = surround_suppression(ssn_mid, ssn_sup, tuning_pars, constant_ssn_pars.conv_pars, radius_list, constant_vector_mid, constant_vector_sup, f_E, f_I, ref_ori = ori_list[i])
+        x_response_sup, x_response_mid = surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, constant_vector_mid, constant_vector_sup, f_E, f_I, ref_ori = ori_list[i])
         print(x_response_sup.shape)
-        inputs.append(SSN_input)
+        #inputs.append(SSN_input)
         responses_sup.append(x_response_sup)
         responses_mid.append(x_response_mid)
         
-    return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2), np.vstack([inputs]), ssn_mid
+    return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2)
 
 
 
@@ -618,4 +616,50 @@ def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, 
             plt.title(title)
         plt.show()
     
-    return np.vstack(all_responses_sup), np.vstack(all_responses_mid), SSN_input_ref
+    return np.vstack(all_responses_sup), np.vstack(all_responses_mid)
+
+
+
+def plot_w_sig(w_sig, epochs_plot = None, save=None):
+    
+    plt.plot(w_sig.T)
+    plt.xlabel('Epoch')
+    plt.ylabel('Values of w')
+    if epochs_plot==None:
+        pass
+    else:
+        if np.isscalar(epochs_plot):
+            plt.axvline(x=epochs_plot, c = 'r')
+        else:
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[1], c='r')
+        
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close()
+    
+    
+def plot_max_rates(max_rates, epochs_plot = None, save=None):
+    
+    plt.plot(np.linspace(1, len(max_rates), len(max_rates)), max_rates, label = ['E_mid', 'I_mid', 'E_sup', 'I_sup'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Maximum rates')
+    plt.legend()
+    
+    if epochs_plot==None:
+                pass
+    else:
+        if np.isscalar(epochs_plot):
+            
+            plt.axvline(x=epochs_plot, c = 'r')
+        else:
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[0]+epochs_plot[1], c='r')
+            #plt.axvline(x=epochs_plot[2], c='r')
+    
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close() 
+    
