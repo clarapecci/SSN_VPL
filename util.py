@@ -10,11 +10,11 @@ from jax import vmap
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy 
-from torch.utils.data import DataLoader
 from numpy.random import binomial
 from pdb import set_trace
 import os
 from parameters import *
+numpy.random.seed(0)
 
  
 #####  ORIGINAL UTIL ####
@@ -503,7 +503,6 @@ def create_grating_pairs(n_trials, stimuli_pars):
 
     return data_dict
 
-
 def load_param_from_csv(results_filename, epoch):
     
     '''
@@ -666,3 +665,8 @@ class BW_Grating:
             image = image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]
 
         return image
+    
+    
+    
+    
+    
