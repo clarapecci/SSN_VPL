@@ -456,7 +456,7 @@ def find_A(
     return output
 
 
-
+rng = numpy.random.default_rng(12345)
 #CREATE INPUT STIMULI
 def create_grating_pairs(n_trials, stimuli_pars):
     '''
@@ -476,16 +476,17 @@ def create_grating_pairs(n_trials, stimuli_pars):
     offset = stimuli_pars.offset
     data_dict = {'ref':[], 'target': [], 'label':[]}
     for i in range(n_trials):
-        
-        if numpy.random.uniform(0,1,1) < 0.5:
+        uniform_dist_value = rng.uniform(low = 0, high = 1)
+        #if numpy.random.uniform(0,1,1) < 0.5:
+        if  uniform_dist_value < 0.5:
             target_ori = ref_ori - offset
             label = 1
         else:
             target_ori = ref_ori + offset
             label = 0
         jitter_val = stimuli_pars.jitter_val
-        jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
-    
+        #jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
+        jitter = rng.uniform(low = -jitter_val, high = jitter_val)
         #create reference grating
         ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, stimuli_pars = stimuli_pars).BW_image().ravel()
 
@@ -582,17 +583,16 @@ def load_matrix_response(results_dir, layer):
 
 
 class BW_Grating:
-    """    
-    """
+    """ """
+
     def __init__(
         self,
         ori_deg,
-        jitter,
         stimuli_pars,
-        phase = 0,
+        jitter=0,
+        phase=0,
         crop_f=None,
     ):
-        
         self.ori_deg = ori_deg
         self.jitter = jitter
         self.outer_radius = stimuli_pars.outer_radius  # in degrees
@@ -606,46 +606,68 @@ class BW_Grating:
         size = int(edge_deg * 2 * pixel_per_degree) + 1
         self.size = size
         k = stimuli_pars.k
-        spatial_frequency = k * degree_per_pixel # 0.05235987755982988        
+        spatial_frequency = k * degree_per_pixel  # 0.05235987755982988
         self.phase = phase
         self.crop_f = crop_f
         self.smooth_sd = self.pixel_per_degree / 6
         self.spatial_freq = spatial_frequency or (1 / self.pixel_per_degree)
         self.grating_size = round(self.outer_radius * self.pixel_per_degree)
         self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * numpy.pi
-   
+
     def BW_image(self):
         _BLACK = 0
         _WHITE = 255
         _GRAY = round((_WHITE + _BLACK) / 2)
-        
+
         # Generate a 2D grid of coordinates
-        x, y = numpy.mgrid[-self.grating_size:self.grating_size + 1.0, -self.grating_size:self.grating_size + 1.0]
+        x, y = numpy.mgrid[
+            -self.grating_size : self.grating_size + 1.0,
+            -self.grating_size : self.grating_size + 1.0,
+        ]
 
         # Calculate the distance from the center for each pixel
-        edge_control = numpy.sqrt(x**2 + y**2) / self.pixel_per_degree
-        
+        edge_control_dist = numpy.sqrt(numpy.power(x, 2) + numpy.power(y, 2))
+        edge_control = numpy.divide(edge_control_dist, self.pixel_per_degree)
+
         # Create a matrix (alpha_channel) that is 255 (white) within the inner_radius and exponentially fades to 0 as the radius increases
         overrado = numpy.nonzero(edge_control > self.inner_radius)
-        annulus = numpy.ones_like(edge_control)
-        annulus[overrado] *= numpy.exp(-1 * ((edge_control[overrado] - self.inner_radius) * self.pixel_per_degree)**2 / (2 * (self.smooth_sd**2)))
+        d = self.grating_size * 2 + 1
+        annulus = numpy.ones((d, d))
+
+        annulus[overrado] *= numpy.exp(
+            -1
+            * ((edge_control[overrado] - self.inner_radius) * self.pixel_per_degree)
+            ** 2
+            / (2 * (self.smooth_sd**2))
+        )
         alpha_channel = annulus * _WHITE
 
-        # Generate the grating pattern, which is a centered and tilted sinusoidal matrix 
-        spatial_component = 2 * math.pi * self.spatial_freq * (y * numpy.sin(self.angle) + x * numpy.cos(self.angle))
-        gabor_sti = _GRAY * (1 + self.grating_contrast * numpy.cos(spatial_component + self.phase))
+        # Generate the grating pattern, which is a centered and tilted sinusoidal matrix
+        spatial_component = (
+            2
+            * math.pi
+            * self.spatial_freq
+            * (y * numpy.sin(self.angle) + x * numpy.cos(self.angle))
+        )
+        gabor_sti = _GRAY * (
+            1 + self.grating_contrast * numpy.cos(spatial_component + self.phase)
+        )
 
         # Set pixels outside the grating size to gray
-        gabor_sti[edge_control > self.grating_size] = _GRAY
+        gabor_sti[edge_control_dist > self.grating_size] = _GRAY
 
         # Add Gaussian white noise to the grating
         noise = numpy.random.normal(loc=0, scale=self.std, size=gabor_sti.shape)
         noisy_gabor_sti = gabor_sti + noise
 
         # Expand the grating to have three colors andconcatenate it with alpha_channel
-        gabor_sti_final = numpy.repeat(noisy_gabor_sti[:, :, numpy.newaxis], 3, axis=-1)        
-        gabor_sti_final_with_alpha = numpy.concatenate((gabor_sti_final, alpha_channel[:, :, numpy.newaxis]), axis=-1)
-        gabor_sti_final_with_alpha_image = Image.fromarray(gabor_sti_final_with_alpha.astype(numpy.uint8))
+        gabor_sti_final = numpy.repeat(noisy_gabor_sti[:, :, numpy.newaxis], 3, axis=-1)
+        gabor_sti_final_with_alpha = numpy.concatenate(
+            (gabor_sti_final, alpha_channel[:, :, numpy.newaxis]), axis=-1
+        )
+        gabor_sti_final_with_alpha_image = Image.fromarray(
+            gabor_sti_final_with_alpha.astype(numpy.uint8)
+        )
 
         # Create a background image filled with gray
         background = numpy.full((self.size, self.size, 3), _GRAY, dtype=numpy.uint8)
@@ -654,7 +676,11 @@ class BW_Grating:
         # Paste the grating into the final image: paste the grating into a bounding box and apply the alpha channel as a mask
         center_x, center_y = self.size // 2, self.size // 2
         bounding_box = (center_x - self.grating_size, center_y - self.grating_size)
-        final_image.paste(gabor_sti_final_with_alpha_image, box=bounding_box, mask=gabor_sti_final_with_alpha_image)
+        final_image.paste(
+            gabor_sti_final_with_alpha_image,
+            box=bounding_box,
+            mask=gabor_sti_final_with_alpha_image,
+        )
 
         # Sum the image over color channels
         final_image_np = numpy.array(final_image, dtype=numpy.float16)
@@ -662,9 +688,10 @@ class BW_Grating:
 
         # Crop the image if crop_f is specified
         if self.crop_f:
-            image = image[self.crop_f:-self.crop_f, self.crop_f:-self.crop_f]
+            image = image[self.crop_f : -self.crop_f, self.crop_f : -self.crop_f]
 
         return image
+
     
     
     

@@ -18,12 +18,13 @@ from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_lo
 
 numpy.random.seed(0)
 
-
+rng_noise = numpy.random.default_rng(10)
 def generate_noise(sig_noise,  batch_size, length):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
-    return sig_noise*numpy.random.randn(batch_size, length)
+    return  rng_noise.normal(size = (batch_size, length))*sig_noise #sig_noise*numpy.random.randn(batch_size, length)
+
 
 
 def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
@@ -48,7 +49,8 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
         layer_output = layer_output + fp_E_on_pi2 + fp_E_off_pi2    
         max_E =  np.max(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
         max_I = np.max(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
-         
+     
+
     #Loss for high rates
     r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
     #r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
@@ -175,7 +177,6 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     loss = loss_binary + loss_w + loss_b +  loss_avg_dx + loss_r_max
     all_losses = np.vstack((loss_binary, loss_avg_dx, loss_r_max, loss_w, loss_b, loss))
     pred_label = np.round(x) 
-
     return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
 
 
@@ -199,7 +200,7 @@ def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_p
     '''
     
     #Run orientation discrimination task
-    total_loss, all_losses, pred_label, sig_input, x, max_rates = vmap_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
     
     #Total loss to take gradient with respect to 
     loss= np.mean(total_loss)
@@ -223,7 +224,6 @@ def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=No
     dt = conv_pars.dt
     xtol = conv_pars.xtol
     Tmax = conv_pars.Tmax
-    
     #Find fixed point
     if PLOT==True:
         fp, avg_dx = ssn.fixed_point_r_plot(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
@@ -268,7 +268,6 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     '''
     Training function for two layer model in two stages: first train readout layer up until early_acc ( default 70% accuracy), in second stage SSN layer parameters are trained.
     '''
-    
     #Initialize loss
     val_loss_per_epoch = []
     training_losses=[]
@@ -301,7 +300,9 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     test_size = training_pars.batch_size
     
     #Find epochs to save
-    epochs_to_save =  np.insert((np.unique(np.linspace(1 , training_pars.epochs, training_pars.num_epochs_to_save).astype(int))), 0 , 0)
+    epochs_to_save =  np.linspace(0, training_pars.epochs, training_pars.num_epochs_to_save).astype(int)
+    epochs_to_save = epochs_to_save.at[0].set(1)
+
         
     #Initialise optimizer
     optimizer = optax.adam(training_pars.eta)
@@ -565,6 +566,7 @@ def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I,
     responses_sup = []
     responses_mid = []
     inputs = []
+
     constant_vector_mid = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
     
@@ -602,8 +604,11 @@ def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, 
         stimuli = create_grating_single(n_trials = 1, stimuli_pars = tuning_pars)
         stimuli = stimuli.squeeze()
         
+        #stimuli = np.load('/mnt/d/ABG_Projects_Backup/ssn_modelling/ssn-simulator/debugging/new_stimuli.npy')
+        
         r_sup, _, _, [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup] = two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
-
+        
+         
         all_responses_sup.append(fp_sup.ravel())
         all_responses_mid.append(fp_mid.ravel())
         print('Mean population response {} (max in population {}), centre neurons {}'.format(fp_sup.mean(), fp_sup.max(), fp_sup.mean()))
