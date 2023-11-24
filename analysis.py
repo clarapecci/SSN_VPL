@@ -795,10 +795,6 @@ def plot_vec2map(ssn, fp, save_fig=False):
 
 
 
-
-
-
-
 def obtain_min_max_indices(ssn, fp):
     idx = (ssn.ori_vec>45)*(ssn.ori_vec<65)
     indices = np.where(idx)
@@ -1034,3 +1030,48 @@ def avg_slope(vector, x_axis, x1, x2, normalised=False):
     grad =(np.abs(vector[idx_2] - vector[idx_1]))/(x2-x1)
     
     return grad
+
+
+
+def plot_w_sig(w_sig, epochs_plot = None, save=None):
+    
+    plt.plot(w_sig.T)
+    plt.xlabel('Epoch')
+    plt.ylabel('Values of w')
+    if epochs_plot==None:
+        pass
+    else:
+        if np.isscalar(epochs_plot):
+            plt.axvline(x=epochs_plot, c = 'r')
+        else:
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[1], c='r')
+        
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close()
+    
+    
+def plot_max_rates(max_rates, epochs_plot = None, save=None):
+    
+    plt.plot(np.linspace(1, len(max_rates), len(max_rates)), max_rates, label = ['E_mid', 'I_mid', 'E_sup', 'I_sup'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Maximum rates')
+    plt.legend()
+    
+    if epochs_plot==None:
+                pass
+    else:
+        if np.isscalar(epochs_plot):
+            
+            plt.axvline(x=epochs_plot, c = 'r')
+        else:
+            plt.axvline(x=epochs_plot[0], c = 'r')
+            plt.axvline(x=epochs_plot[0]+epochs_plot[1], c='r')
+            #plt.axvline(x=epochs_plot[2], c='r')
+    
+    if save:
+            plt.savefig(save+'.png')
+    plt.show()
+    plt.close() 
