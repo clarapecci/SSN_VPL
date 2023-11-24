@@ -1033,20 +1033,13 @@ def avg_slope(vector, x_axis, x1, x2, normalised=False):
 
 
 
-def plot_w_sig(w_sig, epochs_plot = None, save=None):
+def plot_w_sig(w_sig,  epochs_to_save , epochs_plot = None,save=None):
     
-    plt.plot(w_sig.T)
+    plt.plot(w_sig)
     plt.xlabel('Epoch')
     plt.ylabel('Values of w')
-    if epochs_plot==None:
-        pass
-    else:
-        if np.isscalar(epochs_plot):
-            plt.axvline(x=epochs_plot, c = 'r')
-        else:
-            plt.axvline(x=epochs_plot[0], c = 'r')
-            plt.axvline(x=epochs_plot[1], c='r')
-        
+    if epochs_plot:
+        plt.axvline(x=epochs_plot, c='r', label='criterion')
     if save:
             plt.savefig(save+'.png')
     plt.show()
