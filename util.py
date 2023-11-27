@@ -14,7 +14,7 @@ from numpy.random import binomial
 from pdb import set_trace
 import os
 from parameters import *
-numpy.random.seed(0)
+#numpy.random.seed(0)
 
  
 #####  ORIGINAL UTIL ####
@@ -175,6 +175,7 @@ def f_sigmoid(x, a = 0.75):
 def binary_loss(n, x):
     return - (n*np.log(x) + (1-n)*np.log(1-x))
 
+
 def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     
     '''
@@ -191,11 +192,11 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     save_params= dict(epoch = epoch, val_accuracy= true_acc)
     
     
-    J_2x2_m = sep_exponentiate(ssn_layer_pars['logJ_2x2'][0])
+    J_2x2_m = sep_exponentiate(ssn_layer_pars['J_2x2_m'])
     Jm = dict(J_EE_m= J_2x2_m[0,0], J_EI_m = J_2x2_m[0,1], 
                               J_IE_m = J_2x2_m[1,0], J_II_m = J_2x2_m[1,1])
             
-    J_2x2_s = sep_exponentiate(ssn_layer_pars['logJ_2x2'][1])
+    J_2x2_s = sep_exponentiate(ssn_layer_pars['J_2x2_s'])
     Js = dict(J_EE_s= J_2x2_s[0,0], J_EI_s = J_2x2_s[0,1], 
                               J_IE_s = J_2x2_s[1,0], J_II_s = J_2x2_s[1,1])
             
@@ -210,7 +211,7 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     if 'sigma_oris' in ssn_layer_pars.keys():
 
         if len(ssn_layer_pars['sigma_oris']) ==1:
-            save_params[key] = np.exp(ssn_layer_pars[key])
+            save_params['sigma_oris'] = np.exp(ssn_layer_pars['sigma_oris'])
         elif np.shape(ssn_layer_pars['sigma_oris'])==(2,2):
             save_params['sigma_orisEE'] = np.exp(ssn_layer_pars['sigma_oris'][0,0])
             save_params['sigma_orisEI'] = np.exp(ssn_layer_pars['sigma_oris'][0,1])
@@ -234,13 +235,14 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     
     if 'f_E' in ssn_layer_pars.keys():
 
-        save_params['f_E']  = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
-        save_params['f_I']  = np.exp(ssn_layer_pars['f_I'])
+        save_params['f_E'] = np.exp(ssn_layer_pars['f_E'])#*f_sigmoid(ssn_layer_pars['f_E'])
+        save_params['f_I'] = np.exp(ssn_layer_pars['f_I'])
         
     #Add readout parameters
     save_params.update(readout_pars)
 
     return save_params
+
 
 
 
@@ -456,7 +458,7 @@ def find_A(
     return output
 
 
-rng = numpy.random.default_rng(12345)
+#rng = numpy.random.default_rng(12345)
 #CREATE INPUT STIMULI
 def create_grating_pairs(n_trials, stimuli_pars):
     '''
@@ -474,19 +476,20 @@ def create_grating_pairs(n_trials, stimuli_pars):
     training_gratings=[]
     ref_ori = stimuli_pars.ref_ori
     offset = stimuli_pars.offset
+    
     data_dict = {'ref':[], 'target': [], 'label':[]}
     for i in range(n_trials):
-        uniform_dist_value = rng.uniform(low = 0, high = 1)
-        #if numpy.random.uniform(0,1,1) < 0.5:
-        if  uniform_dist_value < 0.5:
+        #uniform_dist_value = rng.uniform(low = 0, high = 1)
+        if numpy.random.uniform(0,1,1) < 0.5:
+        #if  uniform_dist_value < 0.5:
             target_ori = ref_ori - offset
             label = 1
         else:
             target_ori = ref_ori + offset
             label = 0
         jitter_val = stimuli_pars.jitter_val
-        #jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
-        jitter = rng.uniform(low = -jitter_val, high = jitter_val)
+        jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
+        #jitter = rng.uniform(low = -jitter_val, high = jitter_val)
         #create reference grating
         ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, stimuli_pars = stimuli_pars).BW_image().ravel()
 
@@ -566,8 +569,8 @@ def create_grating_single(stimuli_pars, n_trials = 10):
 
         
 def save_matrices(run_dir, contrast, matrix_sup, matrix_ref):
-    np.save(os.path.join(run_dir+str(contrast)+'sup.npy'), matrix_sup) 
-    np.save(os.path.join(run_dir+str(contrast)+'mid.npy'), matrix_ref) 
+    np.save(os.path.join(run_dir+'_sup.npy'), matrix_sup) 
+    np.save(os.path.join(run_dir+'_mid.npy'), matrix_ref) 
     
     
 def load_matrix_response(results_dir, layer): 
