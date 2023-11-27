@@ -10,16 +10,16 @@ from util import create_grating_pairs, create_grating_single
 
 from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage
 
-numpy.random.seed(0)
+#numpy.random.seed(0)
 
 
 
-rng_noise = numpy.random.default_rng(10)
+#rng_noise = numpy.random.default_rng(10)
 def generate_noise(sig_noise,  batch_size, length):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
-    return  rng_noise.normal(size = (batch_size, length))*sig_noise #sig_noise*numpy.random.randn(batch_size, length)
+    return sig_noise*numpy.random.randn(batch_size, length)
 
 
 
@@ -96,7 +96,7 @@ def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, const
 
 
                     
-def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target):
+def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target):
     
     '''
     Orientation discrimanation task ran using SSN two-layer model.The reference and target are run through the two layer model individually. 
@@ -114,11 +114,13 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
     c_I = ssn_layer_pars['c_I']
     f_E = np.exp(ssn_layer_pars['f_E'])
     f_I = np.exp(ssn_layer_pars['f_I'])
-    kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
-    kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
+    kappa_pre = np.tanh(ssn_layer_pars['kappa_pre']) # constant_pars.kappa_pre #np.tanh(ssn_layer_pars['kappa_pre'])
+    kappa_post = np.tanh(ssn_layer_pars['kappa_post'])# constant_pars.kappa_post #np.tanh(ssn_layer_pars['kappa_post'])
     
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
+    loss_pars = constant_pars.loss_pars
+    conv_pars = constant_pars.conv_pars
     
     J_2x2_m = sep_exponentiate(logJ_2x2_m)
     J_2x2_s = sep_exponentiate(logJ_2x2_s)
@@ -179,13 +181,13 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, l
 
 
 #Parallelize orientation discrimination task
-vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
-jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2, 3, 4])
+vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
+jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2])
 
 
 #Parallelize orientation discrimination task - frozen parameters
-vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, None, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
-jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, static_argnums = [2, 3, 4])
+vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
+jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, static_argnums = [2])
 
 
 
@@ -235,7 +237,7 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
         return r_box, r_max, avg_dx
 
 
-def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_pars, conv_pars, tuning_pars, radius_list, ori_list, trained_ori):
+def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_pars, tuning_pars, radius_list, ori_list, trained_ori):
     '''
     Construct a response matrix of sizze n_orientations x n_neurons x n_radii
     '''
@@ -246,7 +248,7 @@ def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I,
     responses_sup = []
     responses_mid = []
     inputs = []
-
+    conv_pars = constant_pars.conv_pars
     constant_vector_mid = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
     

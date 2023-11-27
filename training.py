@@ -1,7 +1,5 @@
 import os
 import jax
-from jax import random
-import matplotlib.pyplot as plt
 import jax.numpy as np
 from jax import vmap
 import optax
@@ -12,24 +10,21 @@ import csv
 from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
-from util import create_grating_pairs, create_grating_single
-
-from util import take_log, save_params_dict_two_stage
+from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
 from model import jit_ori_discrimination, generate_noise
-
 from analysis import plot_max_rates, plot_w_sig
 
 
 
-def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target):
+def training_loss(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target):
     
     '''
     Run orientation discrimination task on given batch of data. Returns losses averaged over the trials within the batch. Function over which the gradient is taken.
     '''
     
     #Run orientation discrimination task
-    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
     
     #Total loss to take gradient with respect to 
     loss= np.mean(total_loss)
@@ -46,7 +41,7 @@ def training_loss(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_p
     return loss, [all_losses, true_accuracy, sig_input, x, max_rates]
 
 
-def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, training_pars, stimuli_pars, results_filename = None, results_dir = None, ssn_ori_map=None):
+def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, results_filename = None, results_dir = None):
     
     '''
     Training function for two layer model in two stages: first train readout layer up until early_acc ( default 70% accuracy), in second stage SSN layer parameters are trained.
@@ -66,12 +61,10 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     save_w_sigs.append(readout_pars['w_sig'][:5])
   
     
-    #Initialize networks
-    
-    #ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars['ssn_pars'], grid_pars=constant_pars['grid_pars'], conn_pars=constant_pars['conn_pars_m'], filter_pars=constant_pars['filter_pars'], J_2x2=ssn_layer_pars['J_2x2_m'], gE = constant_pars['gE'][0], gI=constant_pars['gI'][0], ori_map = ssn_ori_map)
-    
-    #ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars['ssn_pars'], grid_pars=constant_pars['grid_pars'], conn_pars=constant_pars['conn_pars_s'], J_2x2=ssn_layer_pars['J_2x2_s'], s_2x2=constant_pars['s_2x2'], sigma_oris = constant_pars['sigma_oris'], ori_map = ssn_ori_map, train_ori = stimuli_pars.ref_ori, kappa_post = ssn_layer_pars['kappa_post'], kappa_pre = ssn_layer_pars['kappa_pre'])
-    
+    #Check for orientation map
+    if constant_pars.ssn_ori_map ==None:
+        ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=ssn_layer_pars.J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0])
+        constant_pars.ssn_ori_map  = ssn_mid.ori_map
                          
     batch_size = training_pars.batch_size
 
@@ -91,7 +84,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     optimizer = optax.adam(training_pars.eta)
     readout_state = optimizer.init(readout_pars)
     
-    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, training_pars.sig_noise, stimuli_pars.offset, loss_pars.lambda_w, batch_size, training_pars.noise_type))
+    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, training_pars.sig_noise, stimuli_pars.offset, constant_pars.loss_pars.lambda_w, batch_size, constant_pars.noise_type))
 
 
     #Initialise csv file
@@ -117,7 +110,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
 
         #Compute loss and gradient
-        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
         
         
         if epoch==1:
@@ -147,7 +140,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
             start_time = time.time()
             
             #Calculate loss for testing data
-            [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _ ]], _= loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, test_data, noise_ref, noise_target)
+            [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _ ]], _= loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, test_data, noise_ref, noise_target)
             val_time = time.time() - start_time
             
             print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {}), '.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
@@ -211,7 +204,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
         noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
          
         #Run model and calculate gradient    
-        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, train_data, noise_ref, noise_target)
+        [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
         
         #Save training losses
         all_losses = np.hstack((all_losses, epoch_all_losses))
@@ -232,7 +225,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
 
             start_time = time.time()
 
-            [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _]], _= loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, test_data, noise_ref, noise_target)
+            [val_loss, [val_all_losses, true_acc, val_delta_x, val_x, _]], _= loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, test_data, noise_ref, noise_target)
             val_time = time.time() - start_time
             print('Training loss: {} ¦ Validation -- loss: {}, true accuracy: {}, at epoch {}, (time {}, {})'.format(epoch_loss, val_loss, true_acc, epoch, epoch_time, val_time))
 
@@ -254,7 +247,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_par
     
     #Plot evolution of w_sig values
     save_w_sigs = np.asarray(np.vstack(save_w_sigs))
-    #plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
+    plot_w_sig(save_w_sigs, epochs_to_save[:len(save_w_sigs)], first_stage_final_epoch, save = os.path.join(results_dir+'_w_sig_evolution') )
     
     #Save transition epochs to plot losses and accuracy
     epochs_plot = first_stage_final_epoch

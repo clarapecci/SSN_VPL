@@ -8,7 +8,8 @@ from pdb import set_trace
 import jax.numpy as np
 import numpy
 
-from model import train_model
+from training import train_model
+#from training_staircase import train_model_staircase
 from parameters import *
 import analysis
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
@@ -41,13 +42,7 @@ gI = [gI_m, gI_s]
 #Sigmoid layer parameters
 N_neurons = 25
 w_sig = numpy.random.normal(scale = 0.25, size = (N_neurons,)) / np.sqrt(N_neurons)
-'''
-w_sig = np.asarray([-0.01099103,  0.0610526,  -0.04244372,  0.03388972, -0.03748327, -0.04477962,
- -0.00982861,  0.07089213, -0.01219126, -0.03902974, -0.03851122, -0.0723979,
- -0.02341048,  0.03419623, -0.10960572,  0.0052105,   0.01962225,  0.07940432,
- -0.04090525, -0.01429555,  0.05262911,  0.01796753,  0.03716281, -0.00987859,
-  0.04770903])
-'''
+
 b_sig = 0.0
 
 #Load orientation map
@@ -63,6 +58,8 @@ ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_par
 ssn_pars.A = ssn_mid.A
 ssn_pars.A2 = ssn_mid.A2
 
+#performance_pars = StimuliPars()
+
 #Collect constant parameters into single class
 class constant_pars:
     ssn_pars =ssn_pars
@@ -77,14 +74,16 @@ class constant_pars:
     noise_type = 'poisson'
     ssn_ori_map = ssn_ori_map_loaded
     ref_ori = stimuli_pars.ref_ori
-    
+    conv_pars = conv_pars
+    loss_pars= loss_pars
+
     
 ################### RESULTS DIRECTORY #################
 #Name of results csv
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '20-11', 'TEST_fix_seed')
+results_dir = os.path.join(home_dir, 'results', '27-11', 'test_conv_pars_st')
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
         
@@ -94,7 +93,14 @@ results_filename = os.path.join(run_dir+'_results.csv')
     
 ##################### TRA#INING ############
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model(ssn_layer_pars, readout_pars, constant_pars, conv_pars, loss_pars, training_pars, stimuli_pars, results_filename = results_filename, results_dir = run_dir, ssn_ori_map=ssn_ori_map_loaded)
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, results_filename = results_filename, results_dir = run_dir)
+
+#Staircase training
+#[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs, saved_offsets = train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_pars, performance_pars, results_filename = results_filename, results_dir = run_dir)
+
+#Plot offsets
+#threshold_dir = os.path.join(run_dir+'_threshold')
+#analysis.plot_offset(saved_offsets, epochs_plot = epochs_plot, save = threshold_dir)
 
 print(ssn_layer_pars)
 print(readout_pars)
@@ -109,7 +115,7 @@ analysis.plot_losses_two_stage(training_losses, val_loss_per_epoch, epochs_plot 
 
 #Plot results
 results_plot_dir =  os.path.join(run_dir+'_results')
-analysis.plot_results_two_layers(results_filename, bernoulli = False, epochs_plot = epochs_plot, save= results_plot_dir)
+analysis.plot_results_two_layers(results_filename = results_filename, epochs_plot = epochs_plot, save= results_plot_dir)
 
 #Plot sigmoid
 sig_dir = os.path.join(run_dir+'_sigmoid')
@@ -119,3 +125,4 @@ analysis.plot_sigmoid_outputs( train_sig_input= train_sig_inputs, val_sig_input 
 #Plot training_accs
 training_accs_dir = os.path.join(run_dir+'_training_accs')
 analysis.plot_training_accs(training_accs, epochs_plot = epochs_plot, save = training_accs_dir)
+
