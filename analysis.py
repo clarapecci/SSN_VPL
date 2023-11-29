@@ -113,42 +113,19 @@ def plot_sigmoid_outputs(train_sig_input, val_sig_input, train_sig_output, val_s
             fig.savefig(save+'.png')
     fig.show()
     plt.close()
-
-
-def plot_results(results_filename, bernoulli=True, epochs_plot = None, save=None, norm_w = False):
-    '''
-    Read csv file with results and plot parameters against epochs. Option to plot norm of w if it is saved. 
-    '''
-    results = pd.read_csv(results_filename, header = 0)
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12,8))
-
-    if 'J_EE' in results.columns:
-        results.plot(x='epoch', y=["J_EE", "J_EI", "J_IE", "J_II"], ax=axes[0,0])
-
-    if 's_EE' in results.columns:
-        results.plot(x='epoch', y=["s_EE", "s_EI", "s_IE", "s_II"], ax=axes[0,1])
-
-    if 'c_E' in results.columns:
-        results.plot(x='epoch', y=["c_E", "c_I"], ax = axes[1,0])
-
-    if 'sigma_orisE' in results.columns:
-        results.plot(x='epoch', y=["sigma_oriE", "sigma_oriI"], ax = axes[0,1])
-
-    if 'sigma_oris' in results.columns:
-        results.plot(x='epoch', y=["sigma_oris"], ax = axes[0,1])
-
-    if 'norm_w' in results.columns and norm_w ==True:
-        results.plot(x='epoch', y=["norm_w"], ax = axes[1,0])
-
-    if bernoulli == True:
-            results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[1,1])
-    else:
-            results.plot(x='epoch', y = ['val_accuracy'], ax = axes[1,1])
-            if epochs_plot:
-                plt.axvline(x=epochs_plot, c = 'r')
+    
+    
+def plot_offset(offsets, epochs_plot = None, save=None):
+    
+    plt.plot(offsets)
+    plt.axvline(x=epochs_plot, c = 'r')
+    plt.xlabel('Epoch')
+    plt.ylabel('Stimuli offset')
+    
     if save:
-            fig.savefig(save+'.png')
-    fig.show()
+        plt.savefig(save+'.png')
+    plt.show()
+    
     plt.close()
 
         
@@ -528,118 +505,6 @@ def case_2(pre_param, post_param, opt_pars, test_data, type_param = None, index=
     return to_plot
 
     
-    
-
-
-
-
-
-def vmap_eval_hist(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
-
-   
-    losses, all_losses, pred_label, sig_in, sig_out, _ = model(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
-    #Find accuracy based on predicted labels
-   
-    true_accuracy = np.sum(data['label'] == pred_label)/len(data['label'])
-    vmap_loss= np.mean(losses)
-    all_losses = np.mean(all_losses, axis = 0)
-    sig_input = np.mean(sig_in)
-    #std = np.std(sig_in) 
-    sig_output = np.mean(sig_out)
-    
-    return vmap_loss, true_accuracy, sig_input, sig_output
-                    
-                    
-def vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag=False):
-    '''
-    Iterates through all values of 'w' to give the losses at each stimuli and weight, and the accuracy at each weight
-    Output:
-        losses: size(n_weights, n_stimuli )
-        accuracy: size( n_weights)
-    '''
-    eval_vmap = vmap(vmap_eval_hist, in_axes = ({'c_E': None, 'c_I': None, 'f_E': None, 'f_I': None, 'logJ_2x2': [None, None], 'kappa_pre': None, 'kappa_post':None}, {'b_sig':None, 'w_sig': 0}, {'ssn_mid_ori_map': None, 'ssn_sup_ori_map': None, 'conn_pars_m': None, 'conn_pars_s': None, 'conv_pars': None, 'filter_pars': None, 'gE': [None, None], 'gI': [None, None], 'grid_pars': None, 'loss_pars': None, 'logs_2x2': None, 'noise_type': None,  'noise_ref':None, 'noise_target':None, 'ssn_pars': None, 'key':None, 'sigma_oris': None, 'train_ori':None}, {'label': None, 'ref': None, 'target': None}, None))
-    losses, true_acc, sig_input, sig_output = eval_vmap(ssn_layer_pars, readout_pars, constant_ssn_pars, data, debug_flag)
-    
-    return losses, true_acc, sig_input, sig_output
-                    
-    
-    
-def test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, noise, offset, trials = 5, p = 0.9, printing=True):
-    
-    
-    N_neurons = 25
-    accuracies = []
-
-    readout_pars['w_sig']= numpy.random.normal(scale = 0.25, size = (trials, N_neurons)) / np.sqrt(N_neurons)
-
-    train_data = create_data(stimuli_pars, ref_ori = constant_ssn_pars['train_ori'], offset = offset, number=trials)
-    constant_ssn_pars = generate_noise(constant_ssn_pars, sig_noise = noise, batch_size = len(train_data['ref']), length= readout_pars['w_sig'].shape[1])
-                                       
-    val_loss, true_acc, sig_input, sig_output = vmap_eval3(ssn_layer_pars, readout_pars, constant_ssn_pars, train_data)
-    
-    #calcualate how many accuracies are above 90
-    higher_90 = np.sum(true_acc[true_acc>p]) / len(true_acc)
-    
-    if printing:
-        print('grating contrast = {}, jitter = {}, noise std={}, acc (% >90 ) = {}'.format(stimuli_pars['grating_contrast'], stimuli_pars['jitter_val'], stimuli_pars['std'], higher_90))
-    print(true_acc.shape)
-    
-    return higher_90, true_acc, readout_pars['w_sig'], sig_input, sig_output
-
-
-def initial_acc(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, ref_ori, offset, min_sig_noise , max_sig_noise, min_jitter = 3, max_jitter = 5, p = 0.9, len_noise=11, len_jitters=3, save_fig = None, trials=100):
-    '''
-    Find initial accuracy for varying jitter and noise levels. 
-    
-    '''
-
-    print(constant_ssn_pars['noise_type'])
-    #list_noise  =  np.logspace(start=np.log10(min_sig_noise), stop=np.log10(max_sig_noise), num=len_noise, endpoint=True, base=10.0, dtype=None, axis=0)
-    list_noise = np.linspace(min_sig_noise, max_sig_noise, len_noise)
-    list_jitters = np.linspace(min_jitter, max_jitter, len_jitters)
-   
-    
-    low_acc=[]
-    all_accuracies=[]
-    percent_50=[]
-    good_w_s=[]
-    all_sig_inputs = []
-    all_sig_outputs = []
-    constant_ssn_pars['train_ori'] = ref_ori
-            
-    
-    
-    for sig_noise in list_noise:
-        for jitter in list_jitters:
-            
-            #stimuli_pars['std'] = noise
-            stimuli_pars['jitter_val'] = jitter
-            
-            
-            constant_ssn_pars['key'], _ = random.split(constant_ssn_pars['key'])
-            higher_90, acc, w_s, sig_input, sig_output = test_accuracies(ssn_layer_pars, readout_pars, constant_ssn_pars, stimuli_pars, noise = sig_noise, offset = offset, p=p,  trials=trials, printing=False)
-            print(acc.shape)
-            #save low accuracies
-            if higher_90 < 0.05:
-                low_acc.append([jitter, sig_noise, higher_90])
-            
-            
-            indices = list(filter(lambda x: acc[x] == 0.5, range(len(acc))))
-            w_s = [w_s[idx] for idx in indices]
-            good_w_s.append(w_s)
-            all_sig_inputs.append(sig_input)
-            all_sig_outputs.append(sig_output)
-            
-            
-            all_accuracies.append([jitter, sig_noise, acc])
-            
-    plot_histograms(all_accuracies, save_fig = save_fig)
-    
-    #plot_all_sig(all_sig_inputs, axis_title = 'Sig input', save_fig = save_fig)
-    
-    return all_accuracies, low_acc, percent_50, good_w_s
-
-
 
 def plot_all_sig(all_sig_inputs, axis_title = None, save_fig = None):
     
@@ -684,7 +549,7 @@ def plot_histograms(all_accuracies, save_fig = None):
             axs[k,j].hist(all_accuracies[count][2])
             axs[k,j].set_xlabel('Initial accuracy')
             axs[k,j].set_ylabel('Frequency')
-            axs[k,j].set_title('noise = '+str(np.round(all_accuracies[count][1], 2))+ ' jitter = '+str(np.round(all_accuracies[count][0], 2)), fontsize=10)
+            axs[k,j].set_title('noise = '+str(np.round(all_accuracies[count][1], 2))+ ' w_std = '+str(np.round(all_accuracies[count][0], 2)), fontsize=10)
             count+=1
             if count==len(all_accuracies):
                 break
@@ -696,19 +561,7 @@ def plot_histograms(all_accuracies, save_fig = None):
     plt.close()
     
     
-def accuracies(all_acc, p = 0.75):
-    '''
-    Print accuracies and jitters that give have a probability p of having initial accuracy betwen 0.45-0.55
-    '''
-    
-    acc_to_save = []
-    for x in range(len(all_acc)):
-        acc = all_acc[x][2]
-        if ((0.45 < acc) & (acc < 0.55)).sum() /len(acc)>p:
-            print(all_acc[x][0], all_acc[x][1])
-            acc_to_save.append([all_acc[x][0], all_acc[x][1]])
-        
-    return acc_to_save
+
     
 
 def plot_tuning_curves(pre_response_matrix, neuron_indices, radius_idx, ori_list, post_response_matrix=None, save=None):
