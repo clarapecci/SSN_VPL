@@ -8,17 +8,16 @@ from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single
 
-from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage
-
-#numpy.random.seed(0)
-
+from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage, leaky_relu, homeo_loss
 
 
 #rng_noise = numpy.random.default_rng(10)
-def generate_noise(sig_noise,  batch_size, length):
+def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
+    sig_noise = 1/np.sqrt(dt_readout*N_readout)
+    print(sig_noise)
     return sig_noise*numpy.random.randn(batch_size, length)
 
 
@@ -36,6 +35,8 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
     #Find maximum rate
     max_E =  np.max(np.asarray([fp_E_on, fp_E_off]))
     max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
+    #mean_E = np.mean(np.asarray([fp_E_on, fp_E_off]))
+    #mean_I = np.mean(np.asarray([fp[3*int(ssn.Ne/2):-1], fp[int(ssn.Ne/2):ssn.Ne]]))
    
     if ssn.phases==4:
         fp_E_on_pi2 = ssn.select_type(fp, map_number = 3)
@@ -45,11 +46,14 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
         layer_output = layer_output + fp_E_on_pi2 + fp_E_off_pi2    
         max_E =  np.max(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
         max_I = np.max(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
+        mean_E = np.mean(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
+        mean_I = np.mean(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
      
-
     #Loss for high rates
-    r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    #r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
+   # r_max = homeo_loss(mean_E, max_E, R_mean_const = 6.1, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 10.3, R_max_const = 100)
+    
+    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
+    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
     
     #layer_output = layer_output/ssn.phases
     if return_fp ==True:
@@ -59,6 +63,7 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
 
 
 def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I):
+    
     '''
     Run individual stimulus through two layer model. 
     
@@ -86,12 +91,13 @@ def two_layer_model(ssn_m, ssn_s, stimuli, conv_pars, constant_vector_mid, const
     
     #Calculate steady state response of middle layer
     r_mid, r_max_mid, avg_dx_mid, fp_mid, max_E_mid, max_I_mid = middle_layer_fixed_point(ssn_m, SSN_mid_input, conv_pars, return_fp = True)
-    
+
     #Concatenate input to superficial layer
     sup_input_ref = np.hstack([r_mid*f_E, r_mid*f_I]) + constant_vector_sup
     
     #Calculate steady state response of superficial layer
     r_sup, r_max_sup, avg_dx_sup, fp_sup, max_E_sup, max_I_sup= obtain_fixed_point_centre_E(ssn_s, sup_input_ref, conv_pars, return_fp= True)
+    
     return r_sup, [r_max_mid, r_max_sup], [avg_dx_mid, avg_dx_sup], [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup]
 
 
@@ -114,8 +120,14 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     c_I = ssn_layer_pars['c_I']
     f_E = np.exp(ssn_layer_pars['f_E'])
     f_I = np.exp(ssn_layer_pars['f_I'])
-    kappa_pre = np.tanh(ssn_layer_pars['kappa_pre']) # constant_pars.kappa_pre #np.tanh(ssn_layer_pars['kappa_pre'])
-    kappa_post = np.tanh(ssn_layer_pars['kappa_post'])# constant_pars.kappa_post #np.tanh(ssn_layer_pars['kappa_post'])
+    
+    
+    if 'kappa_pre' in ssn_layer_pars.keys():
+        kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
+        kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
+    else:
+        kappa_pre =  constant_pars.kappa_pre #np.tanh(ssn_layer_pars['kappa_pre'])
+        kappa_post = constant_pars.kappa_post #np.tanh(ssn_layer_pars['kappa_post'])
     
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
@@ -175,6 +187,7 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     loss = loss_binary + loss_w + loss_b +  loss_avg_dx + loss_r_max
     all_losses = np.vstack((loss_binary, loss_avg_dx, loss_r_max, loss_w, loss_b, loss))
     pred_label = np.round(x) 
+    
     return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
 
 
@@ -184,6 +197,9 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
 vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2])
 
+#Parallelize task - kappa frozen
+vmap_no_kappa = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
+jit_no_kappa= jax.jit(vmap_no_kappa, static_argnums = [2])
 
 #Parallelize orientation discrimination task - frozen parameters
 vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
@@ -227,9 +243,12 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
 
     max_E = np.max(fp[:ssn.Ne])
     max_I = np.max(fp[ssn.Ne:-1])
+    mean_E = np.mean(fp[:ssn.Ne])
+    mean_I= np.mean(fp[ssn.Ne:-1])
     
-    r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    #r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
+    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
+    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
+    #r_max = homeo_loss(mean_E, max_E, R_mean_const = 12, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 41.5, R_max_const = 100)
     
     if return_fp ==True:
         return r_box, r_max, avg_dx, fp, max_E, max_I
@@ -289,7 +308,6 @@ def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, 
         #stimuli = np.load('/mnt/d/ABG_Projects_Backup/ssn_modelling/ssn-simulator/debugging/new_stimuli.npy')
         
         r_sup, _, _, [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup] = two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
-        
          
         all_responses_sup.append(fp_sup.ravel())
         all_responses_mid.append(fp_mid.ravel())

@@ -9,7 +9,8 @@ from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
-from model import jit_ori_discrimination, generate_noise
+from model import generate_noise
+from model import vmap_ori_discrimination as task_function #CHANGE FUNCTION HERE
 
 from analysis import plot_max_rates, plot_w_sig
 
@@ -25,7 +26,7 @@ def training_loss_staircase(ssn_layer_pars, readout_pars, constant_pars, train_d
     '''
     
     #Run orientation discrimination task
-    total_loss, all_losses, pred_label, sig_input, x, max_rates = jit_ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
+    total_loss, all_losses, pred_label, sig_input, x, max_rates = task_function(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
     
     #Total loss to take gradient with respect to 
     loss= np.mean(total_loss)
@@ -95,7 +96,7 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     optimizer = optax.adam(training_pars.eta)
     readout_state = optimizer.init(readout_pars)
     
-    print('Training model for {} epochs  with learning rate {}, sig_noise {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, training_pars.sig_noise, stimuli_pars.offset, constant_pars.loss_pars.lambda_w, batch_size, constant_pars.noise_type))
+    print('Training model for {} epochs  with learning rate {}, reference orientation {}, N_readout {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, stimuli_pars.ref_ori, training_pars.N_readout, stimuli_pars.offset, constant_pars.loss_pars.lambda_w, batch_size, constant_pars.noise_type))
 
 
     #Initialise csv file
@@ -117,9 +118,8 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
         train_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = batch_size)
             
         #Generate noise
-        noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
-        noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
-
+        noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size =batch_size, length = readout_pars['w_sig'].shape[0])
+        noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
         #Compute loss and gradient
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref,_]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
         
@@ -144,10 +144,10 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
             
             #Evaluate model 
             test_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = test_size)
-            
+           
             #Generate noise
-            noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
-            noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
+            noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+            noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
             
             start_time = time.time()
             
@@ -213,8 +213,8 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
         train_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = batch_size)
         
         #Generate noise
-        noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
-        noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
+        noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+        noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
          
         #Run model and calculate gradient    
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref, thresh_variable]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
@@ -244,8 +244,8 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
             #Evaluate model 
             test_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = test_size)
             #Generate noise
-            noise_ref = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
-            noise_target = generate_noise(training_pars.sig_noise, batch_size, readout_pars['w_sig'].shape[0])
+            noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+            noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
 
             start_time = time.time()
 
