@@ -21,6 +21,52 @@ def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
     return sig_noise*numpy.random.randn(batch_size, length)
 
 
+def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=None, print_dt = False):
+    
+    r_init = np.zeros(ssn_input.shape[0])
+    dt = conv_pars.dt
+    xtol = conv_pars.xtol
+    Tmax = conv_pars.Tmax
+    #Find fixed point
+    if PLOT==True:
+        fp, avg_dx = ssn.fixed_point_r_plot(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
+    else:
+        fp, avg_dx = ssn.fixed_point_r(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save)
+
+    avg_dx = np.maximum(0, (avg_dx -1))
+    return fp, avg_dx
+
+
+
+def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
+    
+    #Obtain fixed point
+    fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds)
+
+    #Apply bounding box to data
+    r_box = (ssn.apply_bounding_box(fp, size=3.2)).ravel()
+    
+    #Obtain inhibitory response 
+    if inhibition ==True:
+        r_box_i = ssn.apply_bounding_box(fp, size=3.2, select='I_ON').ravel()
+        r_box = [r_box, r_box_i]
+ 
+
+    max_E = np.max(fp[:ssn.Ne])
+    max_I = np.max(fp[ssn.Ne:-1])
+    mean_E = np.mean(fp[:ssn.Ne])
+    mean_I= np.mean(fp[ssn.Ne:-1])
+    
+    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
+    r_max = leaky_relu(r = max_E, R_thresh = Rmax_E, slope_2 = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope_2 = 1/Rmax_I)
+    #r_max = homeo_loss(mean_E, max_E, R_mean_const = 12, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 41.5, R_max_const = 100)
+    
+    if return_fp ==True:
+        return r_box, r_max, avg_dx, fp, max_E, max_I
+    else:
+        return r_box, r_max, avg_dx
+
+
 
 def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
     
@@ -53,7 +99,7 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
    # r_max = homeo_loss(mean_E, max_E, R_mean_const = 6.1, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 10.3, R_max_const = 100)
     
     #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
+    r_max = leaky_relu(r = max_E, R_thresh = Rmax_E, slope_2 = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope_2 = 1/Rmax_I)
     
     #layer_output = layer_output/ssn.phases
     if return_fp ==True:
@@ -210,50 +256,6 @@ jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, sta
 
 
 
-def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=None, print_dt = False):
-    
-    r_init = np.zeros(ssn_input.shape[0])
-    dt = conv_pars.dt
-    xtol = conv_pars.xtol
-    Tmax = conv_pars.Tmax
-    #Find fixed point
-    if PLOT==True:
-        fp, avg_dx = ssn.fixed_point_r_plot(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
-    else:
-        fp, avg_dx = ssn.fixed_point_r(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save)
-
-    avg_dx = np.maximum(0, (avg_dx -1))
-    return fp, avg_dx
-
-
-
-def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
-    
-    #Obtain fixed point
-    fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds)
-
-    #Apply bounding box to data
-    r_box = (ssn.apply_bounding_box(fp, size=3.2)).ravel()
-    
-    #Obtain inhibitory response 
-    if inhibition ==True:
-        r_box_i = ssn.apply_bounding_box(fp, size=3.2, select='I_ON').ravel()
-        r_box = [r_box, r_box_i]
- 
-
-    max_E = np.max(fp[:ssn.Ne])
-    max_I = np.max(fp[ssn.Ne:-1])
-    mean_E = np.mean(fp[:ssn.Ne])
-    mean_I= np.mean(fp[ssn.Ne:-1])
-    
-    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(max_E, R_thresh = Rmax_E, slope = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope = 1/Rmax_I)
-    #r_max = homeo_loss(mean_E, max_E, R_mean_const = 12, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 41.5, R_max_const = 100)
-    
-    if return_fp ==True:
-        return r_box, r_max, avg_dx, fp, max_E, max_I
-    else:
-        return r_box, r_max, avg_dx
 
 
 def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I, constant_pars, tuning_pars, radius_list, ori_list, trained_ori):

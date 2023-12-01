@@ -142,18 +142,18 @@ def homeo_loss(r_mean, r_max, R_mean_const, R_max_const, lambda_mean = 1):
     return np.maximum(0, (r_max/R_max_const) -1) + lambda_mean*(((r_mean / R_mean_const) -1)**2)    
 
 
-def leaky_relu(x, R_thresh, slope, height = 0.075):
+def leaky_relu(x, R_thresh, slope_1 = 0.15, slope_2 = 1/50):
     
+    height = slope_1/2
     constant = height/(R_thresh**2)
-    
-    y = jax.lax.cond((x<R_thresh), x_less_than, x_greater_than, x, constant, slope, height)
+    y = jax.lax.cond((x<R_thresh), x_less_than, x_greater_than, x, constant, slope_2, height)
     
     return y
  
-def x_greater_than(x, constant, slope, height):
-    return np.maximum(0, (x*slope - (1-height)))
+def x_greater_than(x, constant, slope_2, height):
+    return x*slope_2 - (1-height)
 
-def x_less_than(x, constant, slope, height):
+def x_less_than(x, constant, slope_2, height):
     return constant*(x**2) 
 
     
