@@ -10,11 +10,11 @@ import numpy
 
 from training import train_model
 #from training_staircase import train_model_staircase
+#from training_homeostatic import train_model_homeo
 from parameters import *
 import analysis
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
-numpy.random.seed(0)
-
+numpy.random.seed(1)
 
 ################### PARAMETER SPECIFICATION #################
 #SSN layer parameter initialisation
@@ -33,8 +33,8 @@ kappa_pre = np.asarray([ 0.0, 0.0])
 kappa_post = np.asarray([ 0.0, 0.0])
 
 #Feedforwards connections
-f_E =  np.log(1.11)
-f_I = np.log(0.7)
+f_E = 1.25
+f_I = 1.0
 
 #Constants for Gabor filters
 gE = [gE_m, gE_s]
@@ -51,14 +51,13 @@ ssn_ori_map_loaded = np.load(os.path.join(os.getcwd(), 'orientation_maps', 'ssn_
 
 #Collect training terms into corresponding dictionaries
 readout_pars = dict(w_sig = w_sig, b_sig = b_sig)
-ssn_layer_pars = dict(J_2x2_m = J_2x2_m, J_2x2_s = J_2x2_s, c_E = c_E, c_I = c_I, f_E=f_E, f_I = f_I, kappa_pre = kappa_pre, kappa_post = kappa_post)
+ssn_layer_pars = dict(J_2x2_m = J_2x2_m, J_2x2_s = J_2x2_s)#, c_E = c_E, c_I = c_I, f_E = f_E, f_I = f_I)
  
 #Find normalization constant of Gabor filters
 ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=ssn_pars, grid_pars=grid_pars, conn_pars=conn_pars_m, filter_pars=filter_pars, J_2x2=J_2x2_m, gE = gE[0], gI=gI[0], ori_map = ssn_ori_map_loaded)
 ssn_pars.A = ssn_mid.A
 ssn_pars.A2 = ssn_mid.A2
 
-#performance_pars = StimuliPars()
 
 #Collect constant parameters into single class
 class constant_pars:
@@ -76,6 +75,13 @@ class constant_pars:
     ref_ori = stimuli_pars.ref_ori
     conv_pars = conv_pars
     loss_pars= loss_pars
+    kappa_pre = kappa_pre
+    kappa_post = kappa_post
+    c_E = c_E
+    c_I = c_I
+    f_E = f_E
+    f_I = f_I
+
 
     
 ################### RESULTS DIRECTORY #################
@@ -83,31 +89,33 @@ class constant_pars:
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '27-11', 'test_conv_pars_st')
+results_dir = os.path.join(home_dir, 'results', '11-12', 'frozen_pars_stairs_stimuli_noise'+str(stimuli_pars.std)+'gE'+str(gE_m)+'lamda'+str(loss_pars.lambda_r_max))
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
         
-run_dir = os.path.join(results_dir,'set_'+str(init_set_m)+'_sig_noise_'+str(training_pars.sig_noise))
+run_dir = os.path.join(results_dir,'set_'+str(init_set_m)+'_N_readout_'+str(training_pars.N_readout))
 results_filename = os.path.join(run_dir+'_results.csv')
-
     
-##################### TRA#INING ############
+##################### TRAINING ############
 
-[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, results_filename = results_filename, results_dir = run_dir)
+#[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, results_filename = results_filename, results_dir = run_dir)
+
+
+#Homeostatic training
+#single_stimuli_pars = StimuliPars()
+#[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model_homeo(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, single_stimuli_pars, results_filename = results_filename, results_dir = run_dir)
 
 #Staircase training
-#[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs, saved_offsets = train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_pars, performance_pars, results_filename = results_filename, results_dir = run_dir)
+performance_pars = StimuliPars()
+[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs, saved_offsets = train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_pars, performance_pars, results_filename = results_filename, results_dir = run_dir)
 
 #Plot offsets
-#threshold_dir = os.path.join(run_dir+'_threshold')
-#analysis.plot_offset(saved_offsets, epochs_plot = epochs_plot, save = threshold_dir)
+threshold_dir = os.path.join(run_dir+'_threshold')
+analysis.plot_offset(saved_offsets, epochs_plot = epochs_plot, save = threshold_dir)
 
 print(ssn_layer_pars)
 print(readout_pars)
 
-#Save training and validation losses
-#np.save(os.path.join(run_dir+'_training_losses.npy'), training_losses)
-#np.save(os.path.join(run_dir+'_validation_losses.npy'), val_loss_per_epoch)
 
 #Plot losses
 losses_dir = os.path.join(run_dir+'_losses')

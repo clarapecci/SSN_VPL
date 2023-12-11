@@ -5,6 +5,7 @@ from PIL import Image
 from random import random
 from scipy.stats import norm
 import jax.numpy as np
+import scipy
 from jax import random
 from jax import vmap
 import pandas as pd
@@ -72,7 +73,6 @@ def Euler2fixedpt(dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLO
             xplot_all=np.hstack((xplot_all, np.sum(xvec)))
             xplot_max.append(xvec.max())
             
-            #set_trace()
         
         if n > Nmin:
             if np.abs( dx /np.maximum(xmin, np.abs(xvec)) ).max() < xtol: # y
@@ -142,22 +142,23 @@ def homeo_loss(r_mean, r_max, R_mean_const, R_max_const, lambda_mean = 1):
     return np.maximum(0, (r_max/R_max_const) -1) + lambda_mean*(((r_mean / R_mean_const) -1)**2)    
 
 
-def leaky_relu(x, R_thresh, slope_1 = 0.15, slope_2 = 1/50):
+def leaky_relu(r, R_thresh, slope_1 = 0.15, slope_2 = 1/50):
     
     height = slope_1/2
     constant = height/(R_thresh**2)
-    y = jax.lax.cond((x<R_thresh), x_less_than, x_greater_than, x, constant, slope_2, height)
-    
-    return y
+    return jax.lax.cond((r<R_thresh), r_less_than, r_greater_than, r, constant, slope_2, height)
  
-def x_greater_than(x, constant, slope_2, height):
-    return x*slope_2 - (1-height)
+def r_greater_than(r, constant, slope_2, height):
+    return r*slope_2 - (1-height)
 
-def x_less_than(x, constant, slope_2, height):
-    return constant*(x**2) 
+def r_less_than(r, constant, slope_2, height):
+    return constant*(r**2) 
 
+
+def rates_loss(numerator, denominator):
     
-    
+    return ((numerator / denominator) -1)**2
+
 
 def constant_to_vec(c_E, c_I, ssn, sup = False):
     
@@ -315,7 +316,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI =0.3, 0.25
+        gE, gI =0.15, 0.15
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -422,6 +423,7 @@ def find_A(
     all_gabors = []
     all_test_stimuli = []
 
+    all_output_gabors = []
     for ori in indices:
         # generate Gabor filter and stimuli at orientation
         gabor = GaborFilter(
@@ -443,7 +445,9 @@ def find_A(
         local_stimuli_pars.degree_per_pixel=degree_per_pixel
         local_stimuli_pars.grating_contrast=0.99
         local_stimuli_pars.jitter = 0
+        #local_stimuli_pars.std = 0
         
+        #Create test grating
         test_grating = BW_Grating(
             ori_deg=ori,
             jitter = local_stimuli_pars.jitter,    
@@ -451,11 +455,12 @@ def find_A(
             phase=phase,
         )
         test_stimuli = test_grating.BW_image()
-
+       
         mean_removed_filter = gabor.filter - gabor.filter.mean()
+        
         # multiply filter and stimuli
         output_gabor = mean_removed_filter.ravel() @ test_stimuli.ravel()
-
+        all_output_gabors.append(output_gabor)
         all_gabors.append(gabor.filter)
         all_test_stimuli.append(test_stimuli)
 
@@ -493,7 +498,6 @@ def create_grating_pairs(n_trials, stimuli_pars):
         dictionary containing reference target and label 
     
     '''
-    
     #initialise empty arrays
     training_gratings=[]
     ref_ori = stimuli_pars.ref_ori
@@ -512,6 +516,7 @@ def create_grating_pairs(n_trials, stimuli_pars):
         jitter_val = stimuli_pars.jitter_val
         jitter = numpy.random.uniform(-jitter_val, jitter_val, 1)
         #jitter = rng.uniform(low = -jitter_val, high = jitter_val)
+        
         #create reference grating
         ref = BW_Grating(ori_deg = ref_ori, jitter=jitter, stimuli_pars = stimuli_pars).BW_image().ravel()
 
@@ -528,6 +533,8 @@ def create_grating_pairs(n_trials, stimuli_pars):
     data_dict['label'] = np.asarray(data_dict['label'])
 
     return data_dict
+
+
 
 def load_param_from_csv(results_filename, epoch):
     
@@ -590,9 +597,9 @@ def create_grating_single(stimuli_pars, n_trials = 10):
 
 
         
-def save_matrices(run_dir, contrast, matrix_sup, matrix_ref):
+def save_matrices(run_dir, matrix_sup, matrix_mid):
     np.save(os.path.join(run_dir+'_sup.npy'), matrix_sup) 
-    np.save(os.path.join(run_dir+'_mid.npy'), matrix_ref) 
+    np.save(os.path.join(run_dir+'_mid.npy'), matrix_mid) 
     
     
 def load_matrix_response(results_dir, layer): 
@@ -638,7 +645,7 @@ class BW_Grating:
         self.spatial_freq = spatial_frequency or (1 / self.pixel_per_degree)
         self.grating_size = round(self.outer_radius * self.pixel_per_degree)
         self.angle = ((self.ori_deg + self.jitter) - 90) / 180 * numpy.pi
-
+        
     def BW_image(self):
         _BLACK = 0
         _WHITE = 255
@@ -680,7 +687,7 @@ class BW_Grating:
 
         # Set pixels outside the grating size to gray
         gabor_sti[edge_control_dist > self.grating_size] = _GRAY
-
+        
         # Add Gaussian white noise to the grating
         noise = numpy.random.normal(loc=0, scale=self.std, size=gabor_sti.shape)
         noisy_gabor_sti = gabor_sti + noise
@@ -717,8 +724,43 @@ class BW_Grating:
 
         return image
 
+
+def standardize_data(data):
+
+    '''
+    Standarize data across neurons for shape (n_neurons x n_trials)
+    '''
+    for i in range(0, data.shape[1]):
+        data[:, i] = (data[:, i] -data[:, i].mean()) / data[:, i].std()
+    return data
+
     
     
+def my_mahalanobis(x=None, data=None, cov=None):
+    """Compute the Mahalanobis Distance between each row of x and the data  
+    x    : vector or matrix of data with, say, p columns.
+    data : ndarray of the distribution from which Mahalanobis distance of each observation of x is to be computed.
+    cov  : covariance matrix (p x p) of the distribution. If None, will be computed from data.
+    """
+    x_minus_mu = x - np.mean(data)
+    if not cov:
+        cov = np.cov(data.T)
+    inv_covmat = scipy.linalg.inv(cov)
+    left_term = np.dot(x_minus_mu, inv_covmat)
+    mahal = np.dot(left_term, x_minus_mu.T)
+    return mahal.diagonal()
+
+
+from scipy import ndimage
+def pre_process(data, n_trials = 300):
     
+    #Select E neurons
+    data_cropped = data[:, :81]
     
+    #Smooth data
+    data_smooth = numpy.asarray([ndimage.gaussian_filter(numpy.reshape(i, (9,9)), sigma = 1) for i in data_cropped])
+
+    #Standarise 
+    data_norm = standardize_data(numpy.reshape(data_smooth, (n_trials, -1)))
     
+    return data_norm

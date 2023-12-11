@@ -12,7 +12,7 @@ from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
-from model import jit_ori_discrimination as task_function
+from model import jit_ori_discrimination_frozen as task_function
 from model import generate_noise
 from analysis import plot_max_rates, plot_w_sig
 
@@ -84,7 +84,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
     optimizer = optax.adam(training_pars.eta)
     readout_state = optimizer.init(readout_pars)
     
-    print('Training model for {} epochs  with learning rate {}, ref ori {}, N_readout {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, stimuli_pars.ref_ori, training_pars.eta, training_pars.N_readout, stimuli_pars.offset, constant_pars.loss_pars.lambda_w, batch_size, constant_pars.noise_type))
+    print('Training model for {} epochs  with learning rate {}, ref ori {}, N_readout {} at offset {}, lam_w {}, batch size {}, noise_type {}'.format(training_pars.epochs, training_pars.eta, stimuli_pars.ref_ori, training_pars.N_readout, stimuli_pars.offset, constant_pars.loss_pars.lambda_w, batch_size, constant_pars.noise_type))
 
 
     #Initialise csv file
@@ -108,7 +108,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
         #Generate noise
         noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
         noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
-
+        
         #Compute loss and gradient
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_readout(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
         
@@ -134,8 +134,8 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
             test_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = test_size)
             
             #Generate noise
-            noise_ref = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
-            noise_target = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
+            noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+            noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
             
             start_time = time.time()
             
@@ -200,8 +200,8 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
         train_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = batch_size)
         
         #Generate noise
-        noise_ref = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
-        noise_target = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
+        noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+        noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
          
         #Run model and calculate gradient    
         [epoch_loss, [epoch_all_losses, train_true_acc, train_delta_x, train_x, train_r_ref]], grad =loss_and_grad_ssn(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
@@ -220,8 +220,8 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
             #Evaluate model 
             test_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = test_size)
             #Generate noise
-            noise_ref = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
-            noise_target = generate_noise(training_pars.N_readout, batch_size, readout_pars['w_sig'].shape[0])
+            noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+            noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
 
             start_time = time.time()
 

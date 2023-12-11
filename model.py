@@ -16,8 +16,10 @@ def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
-    sig_noise = 1/np.sqrt(dt_readout*N_readout)
-    print(sig_noise)
+    
+    #sig_noise = 1/np.sqrt(dt_readout*N_readout)
+    sig_noise = 0.0
+    #assert(sig_noise == 0.2)
     return sig_noise*numpy.random.randn(batch_size, length)
 
 
@@ -27,6 +29,7 @@ def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=No
     dt = conv_pars.dt
     xtol = conv_pars.xtol
     Tmax = conv_pars.Tmax
+    
     #Find fixed point
     if PLOT==True:
         fp, avg_dx = ssn.fixed_point_r_plot(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
@@ -38,7 +41,7 @@ def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=No
 
 
 
-def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
+def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False):
     
     #Obtain fixed point
     fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds)
@@ -57,8 +60,9 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
     mean_E = np.mean(fp[:ssn.Ne])
     mean_I= np.mean(fp[ssn.Ne:-1])
     
-    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(r = max_E, R_thresh = Rmax_E, slope_2 = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope_2 = 1/Rmax_I)
+    #Loss for high rates
+    r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
+    #r_max = leaky_relu(r = max_E, R_thresh = conv_pars.Rmax_E, slope_2 = 1/conv_pars.Rmax_E) + leaky_relu(max_I, R_thresh = conv_pars.Rmax_I, slope_2 = 1/conv_pars.Rmax_I)
     #r_max = homeo_loss(mean_E, max_E, R_mean_const = 12, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 41.5, R_max_const = 100)
     
     if return_fp ==True:
@@ -68,7 +72,7 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I 
 
 
 
-def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 80, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
+def middle_layer_fixed_point(ssn, ssn_input, conv_pars, inhibition = False, PLOT=False, save=None, inds=None, return_fp = False, print_dt = False):
     
     fp, avg_dx = obtain_fixed_point(ssn=ssn, ssn_input = ssn_input, conv_pars = conv_pars, PLOT = PLOT, save = save, inds = inds, print_dt = print_dt)
     
@@ -95,11 +99,11 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars,  Rmax_E = 40, Rmax_I = 8
         mean_E = np.mean(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
         mean_I = np.mean(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
      
+   
     #Loss for high rates
    # r_max = homeo_loss(mean_E, max_E, R_mean_const = 6.1, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 10.3, R_max_const = 100)
-    
-    #r_max = np.maximum(0, (max_E/Rmax_E - 1)) + np.maximum(0, (max_I/Rmax_I - 1))
-    r_max = leaky_relu(r = max_E, R_thresh = Rmax_E, slope_2 = 1/Rmax_E) + leaky_relu(max_I, R_thresh = Rmax_I, slope_2 = 1/Rmax_I)
+    r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
+    #r_max = leaky_relu(r = max_E, R_thresh = conv_pars.Rmax_E, slope_2 = 1/conv_pars.Rmax_E) + leaky_relu(r = max_I, R_thresh = conv_pars.Rmax_I, slope_2 = 1/conv_pars.Rmax_I)
     
     #layer_output = layer_output/ssn.phases
     if return_fp ==True:
@@ -162,19 +166,27 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     
     logJ_2x2_m = ssn_layer_pars['J_2x2_m']
     logJ_2x2_s = ssn_layer_pars['J_2x2_s']
-    c_E = ssn_layer_pars['c_E']
-    c_I = ssn_layer_pars['c_I']
-    f_E = np.exp(ssn_layer_pars['f_E'])
-    f_I = np.exp(ssn_layer_pars['f_I'])
     
     
     if 'kappa_pre' in ssn_layer_pars.keys():
         kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
         kappa_post = np.tanh(ssn_layer_pars['kappa_post'])
     else:
-        kappa_pre =  constant_pars.kappa_pre #np.tanh(ssn_layer_pars['kappa_pre'])
-        kappa_post = constant_pars.kappa_post #np.tanh(ssn_layer_pars['kappa_post'])
-    
+        kappa_pre =  constant_pars.kappa_pre 
+        kappa_post = constant_pars.kappa_post 
+    if 'c_E' in ssn_layer_pars.keys():
+        c_E = ssn_layer_pars['c_E']
+        c_I = ssn_layer_pars['c_I']
+    else:
+        c_E = constant_pars.c_E
+        c_I  = constant_pars.c_I
+    if 'f_E' in ssn_layer_pars.keys():
+        f_E = np.exp(ssn_layer_pars['f_E'])
+        f_I = np.exp(ssn_layer_pars['f_I'])
+    else:
+        f_E = constant_pars.f_E
+        f_I  = constant_pars.f_I
+
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
     loss_pars = constant_pars.loss_pars
@@ -235,8 +247,6 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     pred_label = np.round(x) 
     
     return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
-
-
 
 
 #Parallelize orientation discrimination task
