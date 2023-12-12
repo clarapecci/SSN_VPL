@@ -316,7 +316,7 @@ def init_set_func(init_set, conn_pars, ssn_pars, middle=False):
         
     if init_set=='C':
         Js0 = [2.5, 1.3, 4.7, 2.2]
-        gE, gI =0.15, 0.15
+        gE, gI =0.3, 0.25
         sigEE, sigIE = 0.2, 0.40
         sigEI, sigII = .09, .09
         conn_pars.p_local = [0.4, 0.7]
@@ -420,10 +420,10 @@ def find_A(
         A: value of constant so that contrast = 100
     """
     all_A = []
-    all_gabors = []
-    all_test_stimuli = []
+    all_stimuli_mean =[]
+    all_stimuli_max = []
+    all_stimuli_min = []
 
-    all_output_gabors = []
     for ori in indices:
         # generate Gabor filter and stimuli at orientation
         gabor = GaborFilter(
@@ -445,7 +445,7 @@ def find_A(
         local_stimuli_pars.degree_per_pixel=degree_per_pixel
         local_stimuli_pars.grating_contrast=0.99
         local_stimuli_pars.jitter = 0
-        #local_stimuli_pars.std = 0
+        local_stimuli_pars.std = 0
         
         #Create test grating
         test_grating = BW_Grating(
@@ -455,14 +455,14 @@ def find_A(
             phase=phase,
         )
         test_stimuli = test_grating.BW_image()
-       
         mean_removed_filter = gabor.filter - gabor.filter.mean()
+        
+        all_stimuli_mean.append(test_stimuli.mean())
+        all_stimuli_min.append(test_stimuli.min())
+        all_stimuli_max.append(test_stimuli.max())
         
         # multiply filter and stimuli
         output_gabor = mean_removed_filter.ravel() @ test_stimuli.ravel()
-        all_output_gabors.append(output_gabor)
-        all_gabors.append(gabor.filter)
-        all_test_stimuli.append(test_stimuli)
 
         # calculate value of A
         A_value = 100 / (output_gabor)
@@ -473,10 +473,7 @@ def find_A(
     # find average value of A
     all_A = np.array(all_A)
     A = all_A.mean()
-
-    all_gabors = np.array(all_gabors)
-    all_test_stimuli = np.array(all_test_stimuli)
-
+                
     if return_all == True:
         output = A, all_gabors, all_test_stimuli
     else:
@@ -689,11 +686,11 @@ class BW_Grating:
         gabor_sti[edge_control_dist > self.grating_size] = _GRAY
         
         # Add Gaussian white noise to the grating
-        noise = numpy.random.normal(loc=0, scale=self.std, size=gabor_sti.shape)
-        noisy_gabor_sti = gabor_sti + noise
+        #noise = numpy.random.normal(loc=0, scale=self.std, size=gabor_sti.shape)
+        #noisy_gabor_sti = gabor_sti + noise
 
         # Expand the grating to have three colors andconcatenate it with alpha_channel
-        gabor_sti_final = numpy.repeat(noisy_gabor_sti[:, :, numpy.newaxis], 3, axis=-1)
+        gabor_sti_final = numpy.repeat(gabor_sti[:, :, numpy.newaxis], 3, axis=-1)
         gabor_sti_final_with_alpha = numpy.concatenate(
             (gabor_sti_final, alpha_channel[:, :, numpy.newaxis]), axis=-1
         )
@@ -721,7 +718,11 @@ class BW_Grating:
         # Crop the image if crop_f is specified
         if self.crop_f:
             image = image[self.crop_f : -self.crop_f, self.crop_f : -self.crop_f]
-
+    
+        noise = numpy.random.normal(loc=0, scale=self.std, size=image.shape)
+        #print('noise std ', np.std(noise))
+        image = image + noise
+        
         return image
 
 
