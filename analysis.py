@@ -159,12 +159,14 @@ def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
     if 'J_EE_m' in results.columns:
         Js = results[['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
         Js = Js.to_numpy()
-        print("J_m ratios = ", np.array((Js[epoch_index,:]/Js[0,:] -1)*100))
+        J_m_ratios = np.array((Js[epoch_index,:]/Js[0,:] -1)*100)
+        print("J_m ratios = ", J_m_ratios)
     
     if 'J_EE_s' in results.columns:
         Js = results[['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
         Js = Js.to_numpy()
-        print("J_s ratios = ", np.array((Js[epoch_index,:]/Js[0,:] -1)*100))
+        J_s_ratios = np.array((Js[epoch_index,:]/Js[0,:] -1)*100)
+        print("J_s ratios = ", J_s_ratios)
         
     if 's_EE_m' in results.columns:
         ss = results[['s_EE_m', 's_EI_m', 's_IE_m', 's_II_m']]
@@ -200,6 +202,9 @@ def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
         kappas = results[['kappa_preE', 'kappa_preI', 'kappa_postE', 'kappa_postI']]
         kappas = kappas.to_numpy()
         print('kappas = ', kappas[epoch_index, :])
+        
+        
+    
         
 
 def plot_results_two_layers(results_filename, bernoulli=False, save=None, epochs_plot=None, norm_w=False, param_sum = False):
@@ -264,19 +269,17 @@ def plot_results_two_layers(results_filename, bernoulli=False, save=None, epochs
         results.plot(x='epoch', y=["f_E", "f_I"], ax = axes[1,1])    
     
 
-    if bernoulli == True:
-            results.plot(x='epoch', y = ['val_accuracy', 'ber_accuracy'], ax = axes[2,0])
+
+    results.plot(x='epoch', y = ['val_accuracy'], ax = axes[2,0])
+    #If passed criterion, plot both lines
+    if epochs_plot==None:
+        pass
     else:
-            results.plot(x='epoch', y = ['val_accuracy'], ax = axes[2,0])
-            #If passed criterion, plot both lines
-            if epochs_plot==None:
-                pass
-            else:
-                if np.isscalar(epochs_plot):
-                    axes[2,0].axvline(x=epochs_plot, c = 'r')
-                else:
-                    axes[2,0].axvline(x=epochs_plot[0], c = 'r')
-                    axes[2,0].axvline(x=epochs_plot[1], c='r')
+        if np.isscalar(epochs_plot):
+            axes[2,0].axvline(x=epochs_plot, c = 'r')
+        else:
+            axes[2,0].axvline(x=epochs_plot[0], c = 'r')
+            axes[2,0].axvline(x=epochs_plot[1], c='r')
     if save:
             fig.savefig(save+'.png')
     fig.show()
@@ -549,13 +552,13 @@ def plot_histograms(all_accuracies, save_fig = None):
             axs[k,j].hist(all_accuracies[count][2])
             axs[k,j].set_xlabel('Initial accuracy')
             axs[k,j].set_ylabel('Frequency')
-            axs[k,j].set_title('noise = '+str(np.round(all_accuracies[count][1], 2))+ ' w_std = '+str(np.round(all_accuracies[count][0], 2)), fontsize=10)
+            axs[k,j].set_title('sti %.0f sig %.2f,'%(all_accuracies[count][1], all_accuracies[count][0]))
             count+=1
             if count==len(all_accuracies):
                 break
     
     if save_fig:
-        fig.savefig(save_fig+'.png')
+        fig.savefig(save_fig+'_accs.png')
         
     fig.show()
     plt.close()
@@ -644,10 +647,9 @@ def plot_vec2map(ssn, fp, save_fig=False):
         fig.savefig(save_fig+'.png')
     
     plt.close()
-  
 
 
-
+    
 def obtain_min_max_indices(ssn, fp):
     idx = (ssn.ori_vec>45)*(ssn.ori_vec<65)
     indices = np.where(idx)
