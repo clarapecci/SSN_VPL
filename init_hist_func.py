@@ -55,17 +55,20 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_pars, stimuli_pars, list_
     N_neurons = 25
             
     
-    for sig_noise in list_noise:
-        for w_std in list_w_std:
+    for noise in list_noise:
+        for sig_noise in list_w_std:
             
             #Generate random ww_sig
-            readout_pars['w_sig']= numpy.random.normal(scale = w_std, size = (trials, N_neurons)) / np.sqrt(N_neurons)
+            readout_pars['w_sig']= numpy.random.normal(scale = 0.25, size = (trials, N_neurons)) / np.sqrt(N_neurons)
             
-    
+            stimuli_pars.std = noise
+            print(noise)
+            
             #Create data + noise
             train_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials =batch_size)
-            noise_ref = generate_noise(sig_noise = sig_noise, batch_size =batch_size, length= readout_pars['w_sig'].shape[1]) 
-            noise_target = generate_noise(sig_noise = sig_noise, batch_size = batch_size, length= readout_pars['w_sig'].shape[1]) 
+            noise_ref = generate_noise(N_readout = 125, batch_size =batch_size, length= readout_pars['w_sig'].shape[1], sig_noise = sig_noise) 
+            print(noise_ref.sum())
+            noise_target = generate_noise(N_readout = 125, batch_size = batch_size, length= readout_pars['w_sig'].shape[1], sig_noise = sig_noise) 
 
             #Calculate performance and loss
             true_acc, sig_input, sig_output = evaluate_acc_over_w_sig(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
@@ -73,18 +76,16 @@ def initial_acc(ssn_layer_pars, readout_pars, constant_pars, stimuli_pars, list_
             #Append values to lists
             all_sig_inputs.append(sig_input)
             all_sig_outputs.append(sig_output)
-            all_accuracies.append([w_std, sig_noise, true_acc])
-            
-            print(sig_input.max(), sig_input.mean())
+            all_accuracies.append([sig_noise, noise, true_acc])
             
             #Check what percentage of accuracies lie in between 45 and 55%
             criteria = ((0.45 < true_acc) & (true_acc < 0.55)).sum() /len(true_acc)
 
             #Save parameter combination where most accuracies are within 45-55
             if criteria >p:
-                    low_acc.append([w_std, sig_noise])
+                    low_acc.append([sig_noise, noise])
             
-            print('grating sig_noise = {}, scale = {}, acc (45-55% > {} ) = {}'.format(sig_noise, w_std, p, criteria))
+            print('grating noise std = {}, scale = {}, acc (45-55% > {} ) = {}'.format(noise, sig_noise, p, criteria))
 
                     
     #Make plots
