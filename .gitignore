@@ -12,5 +12,6 @@ __pycache__/
 gauss_tuning_curves/
 LICENSE
 old_files/
+old_environment/
 *.txt
-env/
+model_superficial_zero.py
