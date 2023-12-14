@@ -8,7 +8,6 @@ import jax.numpy as np
 from jax import vmap
 from pdb import set_trace
 import time
-from torch.utils.data import DataLoader
 import numpy
 from util  import constant_to_vec, create_grating_pairs
 from model import generate_noise
