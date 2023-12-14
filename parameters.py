@@ -1,45 +1,12 @@
 import os
-import matplotlib.pyplot as plt
-import time, os, json
-import pandas as pd
-from tqdm import tqdm
-import seaborn as sns
-import pdb
-from functools import partial
-import math
-import csv
-import time
 import numpy
 from pdb import set_trace
 from dataclasses import dataclass
-
 import jax
 import jax.numpy as np
 
 
-def ssn_init_param(init_set, conn_pars, ssn_pars, middle=False):
-    if init_set == 1:
-        J_2x2 = np.array([[1.82650658, -0.68194475], [2.06815311, -0.5106321]]) * np.pi * ssn_pars.psi
-        gE, gI = 0.37328625 * 1.5, 0.26144141 * 1.5
-        sigEE, sigIE = 0.2, 0.40
-        sigEI, sigII = 0.09, 0.09
-        conn_pars.p_local = [0.4, 0.7]
 
-
-    if init_set == "C":
-        J_2x2 = np.array([[2.5, -1.3],[ 4.7, -2.2]]) * ssn_pars.psi
-        gE, gI = 0.3, 0.25
-        sigEE, sigIE = 0.2, 0.40
-        sigEI, sigII = 0.09, 0.09
-        conn_pars.p_local = [0.4, 0.7]
-
-
-    if middle:
-        conn_pars.p_local = [1, 1]
-
-    s_2x2 = np.array([[sigEE, sigEI], [sigIE, sigII]])
-
-    return J_2x2, s_2x2, gE, gI, conn_pars
 
 '''
 # Input parameters
@@ -138,12 +105,12 @@ class StimuliPars(): #the attributes are changed within SSN_classes for a local 
     inner_radius: float = 2.5 # inner radius of the stimulus
     outer_radius: float = 3.0 # outer radius of the stimulus: together with inner_radius, they define how the edge of the stimulus fades away to the gray background
     grating_contrast: float = 0.8 # from Current Biology 2020 Ke's paper
-    std: float = 0.0 # no noise at the moment but this is a Gaussian white noise added to the stimulus
+    std: float =  200.0 #noise at the moment but  this is a Gaussian white noise added to the stimulus
     jitter_val: float = 5.0 # uniform jitter between [-5, 5] to make the training stimulus vary
     k: float = filter_pars.k # It would be great to get rid of this because FILTER_PARS HAS IT but then it is used when it is passed to new_two_stage_training at BW_Grating
     edge_deg: float = filter_pars.edge_deg # same as for k
     degree_per_pixel = filter_pars.degree_per_pixel # same as for k
-    ref_ori: float = 55.0
+    ref_ori: float = 55
     offset: float = 4.0
 stimuli_pars = StimuliPars()
 
@@ -178,20 +145,22 @@ class conv_pars():
     '''Convergence tolerance  '''
     Tmax: float = 250.0
     '''Maximum number of steps to be taken during convergence'''
-    Rmax_E = None
+    Rmax_E = 40
     '''Maximum firing rate for E neurons - rates above this are penalised'''
-    Rmax_I = None
+    Rmax_I = 80
     '''Maximum firing rate for I neurons - rates above this are penalised '''
+    lambda_rmax = 1
+    lambda_rmean = 1
 
 
 @dataclass
 class TrainingPars():
     eta = 10e-4
     batch_size = 50
-    noise_type = "poisson"
-    sig_noise = 2.0 if noise_type != "no_noise" else 0.0
-    epochs = 5  # was 5
-    num_epochs_to_save = 3
+    N_readout = 125 
+    ''' sig_noise = 1/sqrt(dt_readout * N_readout), for dt_readout = 0.2, N_readout = 125, sig_noise = 2.0 '''
+    epochs = 1000
+    num_epochs_to_save = 101
     first_stage_acc = 0.7
     '''Paremeters of sigmoid layer are trained in the first stage until this accuracy is reached '''
 training_pars = TrainingPars()
@@ -206,6 +175,7 @@ class loss_pars():
     ''' Constant for L2 regularizer of sigmoid layer weights'''
     lambda_b = 1
     ''' Constant for L2 regulazier of sigmoid layer bias '''
-
-
+    
+    
+ssn_ori_map_loaded = np.load(os.path.join(os.getcwd(), 'orientation_maps', 'ssn_map_uniform_good.npy'))
 

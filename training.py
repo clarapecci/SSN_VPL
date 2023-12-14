@@ -12,8 +12,8 @@ from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
-from model import jit_ori_discrimination_frozen as task_function
-from model import generate_noise
+from model_Ro import jit_no_kappa as task_function
+from model_Ro import generate_noise
 from analysis import plot_max_rates, plot_w_sig
 
 
@@ -46,7 +46,8 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
     '''
     Training function for two layer model in two stages: first train readout layer up until early_acc ( default 70% accuracy), in second stage SSN layer parameters are trained.
     '''
-    #Initialize loss
+    
+    #Initialize empty lists
     val_loss_per_epoch = []
     training_losses=[]
     train_accs = []
@@ -71,6 +72,11 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
     #Take logs of parameters
     ssn_layer_pars['J_2x2_m'] = take_log(ssn_layer_pars['J_2x2_m'])
     ssn_layer_pars['J_2x2_s'] = take_log(ssn_layer_pars['J_2x2_s'])
+    
+    #Take log of feedforward connections if training
+    if 'f_E' in ssn_layer_pars.keys():
+        ssn_layer_pars['f_E'] = np.log(ssn_layer_pars['f_E'])
+        ssn_layer_pars['f_I'] = np.log(ssn_layer_pars['f_I'])
 
     #Validation test size equals batch size
     test_size = training_pars.batch_size

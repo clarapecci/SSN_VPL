@@ -12,14 +12,13 @@ from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_lo
 
 
 #rng_noise = numpy.random.default_rng(10)
-def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
+def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2, sig_noise=None):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
-    
-    #sig_noise = 1/np.sqrt(dt_readout*N_readout)
-    sig_noise = 0.0
-    #assert(sig_noise == 0.2)
+    #if sig_noise==None:
+    #    sig_noise = 1/np.sqrt(dt_readout*N_readout)
+    sig_noise = 2.0
     return sig_noise*numpy.random.randn(batch_size, length)
 
 
@@ -85,8 +84,6 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars, inhibition = False, PLOT
     #Find maximum rate
     max_E =  np.max(np.asarray([fp_E_on, fp_E_off]))
     max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
-    #mean_E = np.mean(np.asarray([fp_E_on, fp_E_off]))
-    #mean_I = np.mean(np.asarray([fp[3*int(ssn.Ne/2):-1], fp[int(ssn.Ne/2):ssn.Ne]]))
    
     if ssn.phases==4:
         fp_E_on_pi2 = ssn.select_type(fp, map_number = 3)
@@ -191,7 +188,7 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     b_sig = readout_pars['b_sig']
     loss_pars = constant_pars.loss_pars
     conv_pars = constant_pars.conv_pars
-    
+
     J_2x2_m = sep_exponentiate(logJ_2x2_m)
     J_2x2_s = sep_exponentiate(logJ_2x2_s)
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
