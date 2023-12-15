@@ -15,4 +15,5 @@ old_files/
 old_environment/
 *.txt
 model_superficial_zero.py
-.mat
+*.mat
+debugging/
