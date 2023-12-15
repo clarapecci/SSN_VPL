@@ -8,7 +8,7 @@ from pdb import set_trace
 import jax.numpy as np
 import numpy
 
-from training import train_model_staircase     #SPECIFY WHAT KIND OF TRAINING
+from training import train_model  #SPECIFY WHAT KIND OF TRAINING
 #from training_staircase import train_model_staircase  #SPECIFY WHAT KIND OF TRAINING
 from parameters import *
 import analysis
@@ -71,7 +71,7 @@ class constant_pars:
     gI = gI
     filter_pars = filter_pars
     noise_type = 'poisson'
-    ssn_ori_map = ssn_ori_map_loaded
+    ssn_ori_map = None
     ref_ori = stimuli_pars.ref_ori
     conv_pars = conv_pars
     loss_pars= loss_pars
@@ -85,7 +85,7 @@ class constant_pars:
 home_dir = os.getcwd()
 
 #Specify folder to save results
-results_dir = os.path.join(home_dir, 'results', '11-12', 'noise_end_stair_stimuli_noise'+str(stimuli_pars.std)+'gE'+str(gE_m)+'lamda'+str(loss_pars.lambda_r_max))
+results_dir = os.path.join(home_dir, 'results', '11-12', 'DELETE'+str(stimuli_pars.std)+'gE'+str(gE_m)+'lamda'+str(loss_pars.lambda_r_max))
 if os.path.exists(results_dir) == False:
         os.makedirs(results_dir)
         
@@ -97,7 +97,7 @@ results_filename = os.path.join(run_dir+'_results.csv')
 #Accuracy training
 [ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs = train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stimuli_pars, results_filename = results_filename, results_dir = run_dir)
 
-#Staircase training
+#Staircase training (uncomment from lines 101- 106 to run staircase modelling)
 #performance_pars = StimuliPars()
 #[ssn_layer_pars, readout_pars], val_loss_per_epoch, training_losses, training_accs, train_sig_inputs, train_sig_outputs, val_sig_inputs, val_sig_outputs, epochs_plot, save_w_sigs, saved_offsets = train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_pars, performance_pars, results_filename = results_filename, results_dir = run_dir)
 

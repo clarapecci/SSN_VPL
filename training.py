@@ -12,8 +12,8 @@ from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
-from model_Ro import jit_no_kappa as task_function
-from model_Ro import generate_noise
+from model import jit_no_kappa as task_function
+from model import generate_noise
 from analysis import plot_max_rates, plot_w_sig
 
 
@@ -64,7 +64,7 @@ def train_model(ssn_layer_pars, readout_pars, constant_pars, training_pars, stim
     
     #Check for orientation map
     if constant_pars.ssn_ori_map ==None:
-        ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=ssn_layer_pars.J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0])
+        ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=ssn_layer_pars['J_2x2_m'], gE = constant_pars.gE[0], gI=constant_pars.gI[0])
         constant_pars.ssn_ori_map  = ssn_mid.ori_map
                          
     batch_size = training_pars.batch_size
