@@ -129,10 +129,10 @@ def plot_offset(offsets, epochs_plot = None, save=None):
 
         
 def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
+    
     results = pd.read_csv(results_file, header = 0)
 
-    
-    
+
     if epoch==None:
         accuracies = list(results['val_accuracy'][:20].values)
         count = 9

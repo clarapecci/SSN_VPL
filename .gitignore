@@ -7,7 +7,6 @@ __pycache__/
 *.npy
 *.jpeg
 .ipynb_checkpoints/
-*.ipynb
 !network_example.ipynb
 gauss_tuning_curves/
 LICENSE
@@ -17,3 +16,4 @@ old_environment/
 model_superficial_zero.py
 *.mat
 debugging/
+*.asv

@@ -95,7 +95,7 @@ class TrainingPars():
     ''' sig_noise = 1/sqrt(dt_readout * N_readout), for dt_readout = 0.2, N_readout = 125, sig_noise = 2.0 '''
     epochs = 1000
     num_epochs_to_save = 101
-    first_stage_acc = 0.79
+    first_stage_acc = 0.6
     '''Paremeters of sigmoid layer are trained in the first stage until this accuracy is reached '''
 training_pars = TrainingPars()
 

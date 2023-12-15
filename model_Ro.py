@@ -6,16 +6,19 @@ import numpy
 from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
-from util import create_grating_pairs, create_grating_single
+from util import create_grating_pairs, create_grating_single, select_neurons
 
-from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage, leaky_relu, homeo_loss
+from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage, leaky_relu, homeo_loss, rates_loss
 
 
+#rng_noise = numpy.random.default_rng(10)
 def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
     '''
     Creates vectors of neural noise. Function creates N vectors, where N = batch_size, each vector of length = length. 
     '''
+    
     sig_noise = 1/np.sqrt(dt_readout*N_readout)
+    assert(sig_noise == 0.2)
     return sig_noise*numpy.random.randn(batch_size, length)
 
 
@@ -25,7 +28,6 @@ def obtain_fixed_point(ssn, ssn_input, conv_pars, PLOT=False, save=None, inds=No
     dt = conv_pars.dt
     xtol = conv_pars.xtol
     Tmax = conv_pars.Tmax
-    
     #Find fixed point
     if PLOT==True:
         fp, avg_dx = ssn.fixed_point_r_plot(ssn_input, r_init=r_init, dt=dt, xtol=xtol, Tmax=Tmax, PLOT=PLOT, save=save, inds=inds, print_dt = print_dt)
@@ -57,10 +59,12 @@ def obtain_fixed_point_centre_E(ssn, ssn_input, conv_pars, inhibition = False, P
     mean_I= np.mean(fp[ssn.Ne:-1])
     
     #Loss for high rates
-    r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
-    #r_max = leaky_relu(r = max_E, R_thresh = conv_pars.Rmax_E, slope_2 = 1/conv_pars.Rmax_E) + leaky_relu(max_I, R_thresh = conv_pars.Rmax_I, slope_2 = 1/conv_pars.Rmax_I)
+    #r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
+    #r_max = leaky_relu(r = max_E, R_thresh = conv_pars.Rmax_E_sup, slope_2 = 1/conv_pars.Rmax_E) + leaky_relu(max_I, R_thresh = conv_pars.Rmax_I, slope_2 = 1/conv_pars.Rmax_I)
     #r_max = homeo_loss(mean_E, max_E, R_mean_const = 12, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 41.5, R_max_const = 100)
     
+    r_max = (rates_loss(max_E, conv_pars.Rmax_E_sup) +  rates_loss(max_I, conv_pars.Rmax_I_sup))*conv_pars.lambda_rmax +  (rates_loss(mean_E, conv_pars.Rmean_E_sup) +  rates_loss(mean_I, conv_pars.Rmean_I_sup))*conv_pars.lambda_rmean
+  
     if return_fp ==True:
         return r_box, r_max, avg_dx, fp, max_E, max_I
     else:
@@ -77,10 +81,13 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars, inhibition = False, PLOT
     fp_E_off = ssn.select_type(fp, map_number = (ssn.phases+1))
 
     layer_output = fp_E_on + fp_E_off
+    E_responses, I_responses = select_neurons(fp, layer='mid')
     
-    #Find maximum rate
-    max_E =  np.max(np.asarray([fp_E_on, fp_E_off]))
-    max_I = np.maximum(np.max(fp[3*int(ssn.Ne/2):-1]), np.max(fp[int(ssn.Ne/2):ssn.Ne]))
+    #Find maximum and mean rate
+    max_E = np.max(E_responses)
+    max_I = np.max(I_responses)
+    mean_E = np.mean(E_responses)
+    mean_I = np.mean(I_responses)
    
     if ssn.phases==4:
         fp_E_on_pi2 = ssn.select_type(fp, map_number = 3)
@@ -88,18 +95,14 @@ def middle_layer_fixed_point(ssn, ssn_input, conv_pars, inhibition = False, PLOT
 
         #Changes
         layer_output = layer_output + fp_E_on_pi2 + fp_E_off_pi2    
-        max_E =  np.max(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
-        max_I = np.max(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
-        mean_E = np.mean(np.asarray([fp_E_on, fp_E_off, fp_E_on_pi2, fp_E_off_pi2]))
-        mean_I = np.mean(np.asarray([fp[int(x):int(x)+80] for x in numpy.linspace(81, 567, 4)]))
-     
-   
+        
     #Loss for high rates
-   # r_max = homeo_loss(mean_E, max_E, R_mean_const = 6.1, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 10.3, R_max_const = 100)
-    r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
+    #r_max = homeo_loss(mean_E, max_E, R_mean_const = 6.1, R_max_const = 50) + homeo_loss(mean_I, max_I, R_mean_const = 10.3, R_max_const = 100)
+    #r_max = np.maximum(0, (max_E/conv_pars.Rmax_E - 1)) + np.maximum(0, (max_I/conv_pars.Rmax_I - 1))
     #r_max = leaky_relu(r = max_E, R_thresh = conv_pars.Rmax_E, slope_2 = 1/conv_pars.Rmax_E) + leaky_relu(r = max_I, R_thresh = conv_pars.Rmax_I, slope_2 = 1/conv_pars.Rmax_I)
     
-    #layer_output = layer_output/ssn.phases
+    r_max = rates_loss(max_E, conv_pars.Rmax_E_mid) +  rates_loss(max_I, conv_pars.Rmax_I_mid) +  rates_loss(mean_E, conv_pars.Rmean_E_mid) +  rates_loss(mean_I, conv_pars.Rmean_I_mid)
+   
     if return_fp ==True:
             return layer_output, r_max, avg_dx, fp, max_E, max_I
     else:
@@ -174,6 +177,7 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     else:
         c_E = constant_pars.c_E
         c_I  = constant_pars.c_I
+        
     if 'f_E' in ssn_layer_pars.keys():
         f_E = np.exp(ssn_layer_pars['f_E'])
         f_I = np.exp(ssn_layer_pars['f_I'])
@@ -185,7 +189,6 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     b_sig = readout_pars['b_sig']
     loss_pars = constant_pars.loss_pars
     conv_pars = constant_pars.conv_pars
-
     J_2x2_m = sep_exponentiate(logJ_2x2_m)
     J_2x2_s = sep_exponentiate(logJ_2x2_s)
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
@@ -243,6 +246,7 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     return loss, all_losses, pred_label, sig_input, x,  [max_E_mid, max_I_mid, max_E_sup, max_I_sup]
 
 
+                       
 #Parallelize orientation discrimination task
 vmap_ori_discrimination = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None, 'kappa_pre':None, 'kappa_post':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination = jax.jit(vmap_ori_discrimination, static_argnums = [2])
