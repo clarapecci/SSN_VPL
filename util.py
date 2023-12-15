@@ -726,16 +726,32 @@ class BW_Grating:
         return image
 
 
-def standardize_data(data):
+def smooth_data(vector, sigma = 1):
 
     '''
-    Standarize data across neurons for shape (n_neurons x n_trials)
+    Smooth fixed point. Data is reshaped into 9x9 grid
     '''
-    for i in range(0, data.shape[1]):
-        data[:, i] = (data[:, i] -data[:, i].mean()) / data[:, i].std()
-    return data
-
     
+    new_data = []
+    for trial_response in vector:
+
+        trial_response = trial_response.reshape(9,9,-1)
+        smoothed_data = numpy.asarray([ndimage.gaussian_filter(numpy.reshape(trial_response[:, :, i], (9,9)), sigma = sigma) for i in range(0, trial_response.shape[2])]).ravel()
+        new_data.append(smoothed_data)
+    
+    return np.vstack(np.asarray(new_data))  
+
+def select_neurons(fp, layer):
+    if layer=='mid':
+        
+        E_indices = np.linspace(0, 647, 648).round().reshape(8, 81, -1)[0:9:2].ravel().astype(int)
+        I_indices =np.linspace(0, 647, 648).round().reshape(8, 81, -1)[1:9:2].ravel().astype(int)
+                                                                                         
+    if layer =='sup':                                                                               
+        E_indices = np.linspace(0, 80, 81).astype(int)
+        I_indices = np.linspace(81, 161, 81).astype(int)
+                                                                       
+    return np.asarray(fp[E_indices]), np.asarray(fp[I_indices])    
     
 def my_mahalanobis(x=None, data=None, cov=None):
     """Compute the Mahalanobis Distance between each row of x and the data  
