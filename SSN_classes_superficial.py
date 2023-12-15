@@ -142,8 +142,6 @@ class _SSN_Base(object):
                 
                 xplot_all = np.zeros(((Nmax+1)))
                 xplot_all = xplot_all.at[0].set(np.sum(xvec))
-                
-
 
                 def loop(n, carry):
                     xvec, y, xplot_all = carry
@@ -464,7 +462,6 @@ class SSN2DTopoV1(_SSN_Base):
                         
                     elif b == 1: # I projections 
                         W = np.exp(-xy_dist**2/(2*s_2x2[a,b]**2) -ori_dist**2/(2*sigma_oris[a,b]**2) -kappa_post[a,b] * trained_ori_dist[:, None]**2/2/45**2  -kappa_pre[a,b]*trained_ori_dist[None,:]**2/2/45**2)
-
 
 
                     if Jnoise > 0: # add some noise

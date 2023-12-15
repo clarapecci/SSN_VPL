@@ -131,25 +131,6 @@ class _SSN_Base(object):
 
         return xvec, CONVG
 
-    def fixed_point(self, inp_vec, x_init=None, Tmax=500, dt=1, xtol=1e-5, PLOT=False):
-        
-        if x_init is None:
-            x_init = np.zeros((self.dim,))
-        dxdt = lambda x : self.dxdt(x, inp_vec)
-        x_fp, CONVG = util.Euler2fixedpt(dxdt, x_init, Tmax, dt, xtol, PLOT)
-        if not CONVG:
-            print('Did not reach fixed point.')
-        #else:
-        #    return x_fp
-        return x_fp, CONVG
-
-    def make_noise_cov(self, noise_pars):
-        # the script assumes independent noise to E and I, and spatially uniform magnitude of noise
-        noise_sigsq = np.hstack( (noise_pars.stdevE**2 * np.ones(self.Ne),
-                                  noise_pars.stdevI**2 * np.ones(self.Ni)) )
-        spatl_filt = np.array(1)
-
-        return noise_sigsq, spatl_filt
     
     #@partial(jax.jit, static_argnums=(0, 1, 3, 4, 5, 6, 7, 8), device = jax.devices()[1])
     def Euler2fixedpt_fullTmax(self, dxdt, x_initial, Tmax, dt, xtol=1e-5, xmin=1e-0, Tmin=200, PLOT= False, save=None):
@@ -161,10 +142,6 @@ class _SSN_Base(object):
         
         
         if PLOT:
-                #if inds is None:
-                #    N = x_initial.shape[0] # x_initial.size
-                #    inds = [int(N/4), int(3*N/4)]
-                #xplot = x_initial[inds][:,None]
                 
                 xplot_all = np.zeros(((Nmax+1)))
                 xplot_all = xplot_all.at[0].set(np.sum(xvec))
@@ -445,11 +422,7 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
         self.xy_dist = xy_dist
         self.ori_dist = ori_dist
 
-        return xy_dist, ori_dist  
-
-    
-
-    
+        return xy_dist, ori_dist     
     
     def create_gabor_filters(self):
         
@@ -557,9 +530,6 @@ class SSN2DTopoV1_ONOFF(_SSN_Base):
 
         return map_vec
     
-
-
-
 
 
 class SSN2DTopoV1_ONOFF_local(SSN2DTopoV1_ONOFF):
