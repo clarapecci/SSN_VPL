@@ -10,11 +10,9 @@ from SSN_classes_superficial import SSN2DTopoV1
 from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
 
 from model import generate_noise
-from model import jit_ori_discrimination_frozen as task_function #CHANGE FUNCTION HERE
+from model import jit_no_kappa as task_function #CHANGE FUNCTION HERE
 
 from analysis import plot_max_rates, plot_w_sig
-
-
 
 
 def training_loss_staircase(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target, threshold=0.79):
@@ -85,6 +83,11 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
 
     #Validation test size equals batch size
     test_size = training_pars.batch_size
+    
+    #Take log of feedforward connections if training
+    if 'f_E' in ssn_layer_pars.keys():
+        ssn_layer_pars['f_E'] = np.log(ssn_layer_pars['f_E'])
+        ssn_layer_pars['f_I'] = np.log(ssn_layer_pars['f_I'])
     
     #Find epochs to save
     epochs_to_save =  np.linspace(0, training_pars.epochs, training_pars.num_epochs_to_save).astype(int)
