@@ -7,4 +7,4 @@ Code for simulating the Stabilized Supralinear Network in a visual perceptual le
 4. To train the model:
     4.1 Specify all the parameters in _parameters.py_
     4.2 Run _script_training.py_ where you need to specify the directory to output the results. This script calls on _training.py_ for normal training using accuracy, or on _training_staircase.py_ for staircase training.
-    4.3 The output of training is a csv file containing the values for the trained parameters across epochs, and figures relating to the losses, accuracy, parameter changes, evolution of w_sig during training. 
+    4.3 The output of training is a csv file containing the values for the trained parameters across epochs, and figures relating to the losses, accuracy, parameter changes, evolution of w_sig during training. Plotting functions are found in _analysis.py_
