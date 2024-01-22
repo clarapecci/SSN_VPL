@@ -292,7 +292,7 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     return [ssn_layer_pars, readout_pars], np.vstack([val_loss_per_epoch]), all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epochs_plot, save_w_sigs, all_offsets
 
 
-def test_threshold(readout_pars, ssn_layer_pars, training_pars, constant_pars, ref_ori, test_stimuli_pars, batch_size = 200, threshold = 0.794):
+def test_threshold(readout_pars, ssn_layer_pars, training_pars, constant_pars, ref_ori, test_stimuli_pars, starting_acc = 4.0, batch_size = 200, threshold = 0.794):
     '''
     For a given combination of parameters (readout and ssn), calculates the degree offset at which a given accuracy threshold can be achieved at different orientations. 
     '''
@@ -300,7 +300,7 @@ def test_threshold(readout_pars, ssn_layer_pars, training_pars, constant_pars, r
     #Initalise accuracy at 1 to start loop 
     true_accuracy = 1
     test_stimuli_pars.ref_ori = ref_ori
-    test_stimuli_pars.offset = 4.25
+    test_stimuli_pars.offset = starting_acc + 0.25
     
     #Reduce offset until threshold is reached 
     while np.maximum(true_accuracy, 1- true_accuracy)>threshold:
