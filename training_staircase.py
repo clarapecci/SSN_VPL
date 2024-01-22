@@ -7,9 +7,10 @@ import csv
 from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
-from util import create_grating_pairs, create_grating_single, take_log, save_params_dict_two_stage
+from util import create_grating_pairs, take_log, save_params_dict_two_stage
 
 from model import generate_noise
+#Select function from model.py depending on what parameters are trained
 from model import jit_no_kappa as task_function #CHANGE FUNCTION HERE
 
 from analysis import plot_max_rates, plot_w_sig
@@ -71,6 +72,7 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     #Check for orientation map
     if constant_pars.ssn_ori_map ==None:
         ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=ssn_layer_pars['J_2x2_m'], gE = constant_pars.gE[0], gI=constant_pars.gI[0])
+        np.save(os.path.join(results_dir, 'ori_map.npy'), ssn_mid.ori_map)
         constant_pars.ssn_ori_map  = ssn_mid.ori_map
         
     #Check correct first stage accuracy for staircase trainingm    
@@ -78,8 +80,11 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     batch_size = training_pars.batch_size
 
     #Take logs of parameters
-    ssn_layer_pars['J_2x2_m'] = take_log(ssn_layer_pars['J_2x2_m'])
-    ssn_layer_pars['J_2x2_s'] = take_log(ssn_layer_pars['J_2x2_s'])
+    if 'J_2x2_m' in ssn_layer_pars.keys():
+        ssn_layer_pars['J_2x2_m'] = take_log(ssn_layer_pars['J_2x2_m'])
+
+    if 'J_2x2_s' in ssn_layer_pars.keys():
+        ssn_layer_pars['J_2x2_s'] = take_log(ssn_layer_pars['J_2x2_s'])
 
     #Validation test size equals batch size
     test_size = training_pars.batch_size
@@ -285,3 +290,36 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     plot_max_rates(r_refs, epochs_plot = epochs_plot, save= os.path.join(results_dir+'_max_rates'))
 
     return [ssn_layer_pars, readout_pars], np.vstack([val_loss_per_epoch]), all_losses, train_accs, train_sig_input, train_sig_output, val_sig_input, val_sig_output, epochs_plot, save_w_sigs, all_offsets
+
+
+def test_threshold(readout_pars, ssn_layer_pars, training_pars, constant_pars, ref_ori, test_stimuli_pars, batch_size = 200, threshold = 0.794):
+    '''
+    For a given combination of parameters (readout and ssn), calculates the degree offset at which a given accuracy threshold can be achieved at different orientations. 
+    '''
+
+    #Initalise accuracy at 1 to start loop 
+    true_accuracy = 1
+    test_stimuli_pars.ref_ori = ref_ori
+    test_stimuli_pars.offset = 4.25
+    
+    #Reduce offset until threshold is reached 
+    while np.maximum(true_accuracy, 1- true_accuracy)>threshold:
+    
+        #Reduce offset
+        test_stimuli_pars.offset = test_stimuli_pars.offset - 0.25
+        
+        #Create data
+        train_data = create_grating_pairs(stimuli_pars = test_stimuli_pars, n_trials = batch_size)
+                    
+        #Generate noise
+        noise_ref = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+        noise_target = generate_noise(N_readout = training_pars.N_readout, batch_size = batch_size, length = readout_pars['w_sig'].shape[0])
+
+        #Calculate accuracy for given orientation and offset
+        _, [_, true_accuracy, _, _, _, _] = training_loss_staircase(ssn_layer_pars, readout_pars, constant_pars, train_data, noise_ref, noise_target)
+        print('ori {}, accuracy {}, offset {}'.format(test_stimuli_pars.ref_ori, true_accuracy, test_stimuli_pars.offset))
+
+    #Print final threshold
+    print('Final {} threshold: {} '.format(ref_ori, test_stimuli_pars.offset))
+    
+    return test_stimuli_pars.offset
