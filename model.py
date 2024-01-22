@@ -6,9 +6,9 @@ import numpy
 from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
-from util import create_grating_pairs, create_grating_single
+from util import  create_grating_single
 
-from util import take_log, sep_exponentiate, constant_to_vec, sigmoid, binary_loss, save_params_dict_two_stage, leaky_relu, homeo_loss
+from util import sep_exponentiate, constant_to_vec, sigmoid, binary_loss, homeo_loss
 
 
 def generate_noise(batch_size, length, N_readout = 125,  dt_readout = 0.2):
@@ -158,9 +158,18 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
         sig_input, x: I/O values for sigmoid layer
     '''
     
-    logJ_2x2_m = ssn_layer_pars['J_2x2_m']
-    logJ_2x2_s = ssn_layer_pars['J_2x2_s']
+    #Check parameters that are trained or constant
+    if 'J_2x2_m' in ssn_layer_pars.keys():
+        logJ_2x2_m = ssn_layer_pars['J_2x2_m']
+        J_2x2_m = sep_exponentiate(logJ_2x2_m)
+    else:
+        J_2x2_m = constant_pars.J_2x2_m
     
+    if 'J_2x2_s' in ssn_layer_pars.keys():
+        logJ_2x2_s = ssn_layer_pars['J_2x2_s']
+        J_2x2_s = sep_exponentiate(logJ_2x2_s)
+    else: 
+        J_2x2_s = constant_pars.J_2x2_s
     
     if 'kappa_pre' in ssn_layer_pars.keys():
         kappa_pre = np.tanh(ssn_layer_pars['kappa_pre'])
@@ -181,20 +190,17 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
         f_E = constant_pars.f_E
         f_I  = constant_pars.f_I
 
+
     w_sig = readout_pars['w_sig']
     b_sig = readout_pars['b_sig']
     loss_pars = constant_pars.loss_pars
     conv_pars = constant_pars.conv_pars
-
-    J_2x2_m = sep_exponentiate(logJ_2x2_m)
-    J_2x2_s = sep_exponentiate(logJ_2x2_s)
+    
+    #Generate SSNs
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = constant_pars.ref_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
     
-    #Recalculate new connectivity matrix
-    #ssn_mid.make_local_W(J_2x2_m)
-    #ssn_sup.make_W(J_2x2_s, kappa_pre, kappa_post)
-    
+   
     #Create vector of extrasynaptic constants
     constant_vector_mid = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
@@ -205,8 +211,9 @@ def ori_discrimination(ssn_layer_pars, readout_pars, constant_pars, train_data, 
     #Run target through two layer model
     r_target, [r_max_target_mid, r_max_target_sup], [avg_dx_target_mid, avg_dx_target_sup], _, _= two_layer_model(ssn_mid, ssn_sup, train_data['target'], conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
     
-    noise_type = constant_pars.noise_type
     #Add noise
+    noise_type = constant_pars.noise_type
+    
     if noise_type =='additive':
         r_ref = r_ref + noise_ref
         r_target = r_target + noise_target
@@ -255,6 +262,15 @@ jit_no_kappa= jax.jit(vmap_no_kappa, static_argnums = [2])
 vmap_ori_discrimination_frozen_pars = vmap(ori_discrimination, in_axes = ({'J_2x2_m': None, 'J_2x2_s':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_ori_discrimination_frozen = jax.jit(vmap_ori_discrimination_frozen_pars, static_argnums = [2])
 
+#Freeze middle layer
+vmap_freeze_mid = vmap(ori_discrimination, in_axes = ({'J_2x2_s':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
+jit_freeze_mid = jax.jit(vmap_freeze_mid, static_argnums = [2])
+
+#Freeze superficial
+vmap_freeze_sup = vmap(ori_discrimination, in_axes = ({'J_2x2_m':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
+jit_freeze_sup = jax.jit(vmap_freeze_sup, static_argnums = [2])
+
+
 
 
 
@@ -270,9 +286,9 @@ def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I,
     ssn_mid=SSN2DTopoV1_ONOFF_local(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_m, filter_pars=constant_pars.filter_pars, J_2x2=J_2x2_m, gE = constant_pars.gE[0], gI=constant_pars.gI[0], ori_map = constant_pars.ssn_ori_map)
     ssn_sup=SSN2DTopoV1(ssn_pars=constant_pars.ssn_pars, grid_pars=constant_pars.grid_pars, conn_pars=constant_pars.conn_pars_s, J_2x2=J_2x2_s, s_2x2=constant_pars.s_2x2, sigma_oris = constant_pars.sigma_oris, ori_map = constant_pars.ssn_ori_map, train_ori = trained_ori, kappa_post = kappa_post, kappa_pre = kappa_pre)
 
+
     responses_sup = []
     responses_mid = []
-    inputs = []
     conv_pars = constant_pars.conv_pars
     constant_vector_mid = constant_to_vec(c_E = c_E, c_I = c_I, ssn= ssn_mid)
     constant_vector_sup = constant_to_vec(c_E = c_E, c_I = c_I, ssn = ssn_sup, sup=True)
@@ -289,7 +305,8 @@ def response_matrix(J_2x2_m, J_2x2_s, kappa_pre, kappa_post, c_E, c_I, f_E, f_I,
     return np.stack(responses_sup, axis = 2), np.stack(responses_mid, axis = 2)
 
 
-
+#Parallelizze two_layer_model
+vmap_two_layer_model =  vmap(two_layer_model, in_axes = (None, None, 0, None, None, None, None, None))
 
 def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, constant_vector_mid, constant_vector_sup, f_E, f_I, ref_ori, title= None):    
     
@@ -308,15 +325,13 @@ def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, 
         tuning_pars.outer_radius = radii
         tuning_pars.inner_radius = radii*(2.5/3)
         
-        stimuli = create_grating_single(n_trials = 1, stimuli_pars = tuning_pars)
-        stimuli = stimuli.squeeze()
-        
-        #stimuli = np.load('/mnt/d/ABG_Projects_Backup/ssn_modelling/ssn-simulator/debugging/new_stimuli.npy')
-        
-        r_sup, _, _, [max_E_mid, max_I_mid, max_E_sup, max_I_sup], [fp_mid, fp_sup] = two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
+        stimuli = create_grating_single(n_trials = 50, stimuli_pars = tuning_pars)
+    
+        _, _, _, _, [fp_mid, fp_sup] = vmap_two_layer_model(ssn_mid, ssn_sup, stimuli, conv_pars, constant_vector_mid, constant_vector_sup, f_E, f_I)
          
-        all_responses_sup.append(fp_sup.ravel())
-        all_responses_mid.append(fp_mid.ravel())
+        #Take average over noisy trials
+        all_responses_sup.append(fp_sup.mean(axis = 0))
+        all_responses_mid.append(fp_mid.mean(axis = 0))
         print('Mean population response {} (max in population {}), centre neurons {}'.format(fp_sup.mean(), fp_sup.max(), fp_sup.mean()))
     
     if title:
@@ -328,7 +343,6 @@ def surround_suppression(ssn_mid, ssn_sup, tuning_pars, conv_pars, radius_list, 
         plt.show()
     
     return np.vstack(all_responses_sup), np.vstack(all_responses_mid)
-
 
 
     
