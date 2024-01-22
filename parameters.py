@@ -2,13 +2,12 @@ import os
 import numpy
 from pdb import set_trace
 from dataclasses import dataclass
-import jax
 import jax.numpy as np
 
 
 
 
-# SSN grid parameters
+# Input parameters
 class grid_pars():
     gridsize_Nx: int = 9 
     ''' grid-points across each edge - gives rise to dx = 0.8 mm '''
@@ -19,7 +18,9 @@ class grid_pars():
     hyper_col: float = 0.4  
     ''' ? are our grid points represent columns? (mm) '''
 
-#Gabor filter parameters for SSN middle
+    
+
+
 class filter_pars():
     sigma_g = numpy.array(0.27)
     '''Standard deviation of Gaussian in Gabor '''
@@ -33,7 +34,9 @@ class filter_pars():
     ''' Converts from degrees to number of pixels ''' # convert degree to number of pixels (129 x 129), this could be calculated from earlier params '''
 
     
-#Training data parameters    
+    
+    
+
 @dataclass
 class StimuliPars(): #the attributes are changed within SSN_classes for a local instance
     inner_radius: float = 2.5 # inner radius of the stimulus
@@ -48,7 +51,7 @@ class StimuliPars(): #the attributes are changed within SSN_classes for a local 
     offset: float = 4.0
 stimuli_pars = StimuliPars()
 
-#SSN constant parameters
+
 class ssn_pars():
     n = 2.0 # power law parameter
     k = 0.04 # power law parameter
@@ -60,18 +63,18 @@ class ssn_pars():
     phases = 4# or 4
     
 
-#Conn pars middle layer
+
 class conn_pars_m():
     PERIODIC: bool = False
     p_local = None
 
-#Conn pars superficial layer
+
 class conn_pars_s():
     PERIODIC: bool = False
     p_local = None
 
     
-# Convergence parameters
+# Training parameters
 class conv_pars():
     dt: float = 1.0
     '''Step size during convergence '''
@@ -86,20 +89,22 @@ class conv_pars():
     lambda_rmax = 1
     lambda_rmean = 1
 
-#Training parameters
+
 @dataclass
 class TrainingPars():
     eta = 10e-4
     batch_size = 50
     N_readout = 125 
     ''' sig_noise = 1/sqrt(dt_readout * N_readout), for dt_readout = 0.2, N_readout = 125, sig_noise = 2.0 '''
-    epochs = 1000
-    num_epochs_to_save = 101
-    first_stage_acc = 0.6
+    epochs = 200
+    num_epochs_to_save = 21
+    first_stage_acc = 0.79
     '''Paremeters of sigmoid layer are trained in the first stage until this accuracy is reached '''
+    reversal_number = 15
+    '''Maximum number of reversals implemented during staircase training'''
 training_pars = TrainingPars()
 
-#Loss weights
+
 class loss_pars():
     lambda_dx = 1
     ''' Constant for loss with respect to convergence of Euler function'''

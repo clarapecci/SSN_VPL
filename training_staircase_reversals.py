@@ -217,8 +217,8 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
     reversals = 0
     epoch=0
     
-    #Train until 15 reversals are met
-    while reversals <15:
+    #Train until maximum number of reversals is met
+    while reversals <training_pars.reversal_number:
                 
         #Generate next batch of data
         train_data = create_grating_pairs(stimuli_pars = stimuli_pars, n_trials = batch_size)
@@ -285,8 +285,9 @@ def train_model_staircase(ssn_layer_pars, readout_pars, constant_pars, training_
         updates, ssn_layer_state = optimizer.update(grad, ssn_layer_state)
         ssn_layer_pars = optax.apply_updates(ssn_layer_pars, updates)
 
-        #Increase counts
+        #Increase epoch count
         epoch+=1
+        
         #Set previous threshold variable to compare reversals
         prev_thresh_var = thresh_variable
     
