@@ -214,17 +214,20 @@ def save_params_dict_two_stage(ssn_layer_pars, readout_pars, true_acc, epoch ):
     save_params = {}
     save_params= dict(epoch = epoch, val_accuracy= true_acc)
     
-    
-    J_2x2_m = sep_exponentiate(ssn_layer_pars['J_2x2_m'])
-    Jm = dict(J_EE_m= J_2x2_m[0,0], J_EI_m = J_2x2_m[0,1], 
-                              J_IE_m = J_2x2_m[1,0], J_II_m = J_2x2_m[1,1])
+    if 'J_2x2_m' in ssn_layer_pars.keys():
+        J_2x2_m = sep_exponentiate(ssn_layer_pars['J_2x2_m'])
+        Jm = dict(J_EE_m= J_2x2_m[0,0], J_EI_m = J_2x2_m[0,1], 
+                                J_IE_m = J_2x2_m[1,0], J_II_m = J_2x2_m[1,1])
+        save_params.update(Jm)
             
-    J_2x2_s = sep_exponentiate(ssn_layer_pars['J_2x2_s'])
-    Js = dict(J_EE_s= J_2x2_s[0,0], J_EI_s = J_2x2_s[0,1], 
+    
+    if 'J_2x2_s' in ssn_layer_pars.keys():
+        J_2x2_s = sep_exponentiate(ssn_layer_pars['J_2x2_s'])
+        Js = dict(J_EE_s= J_2x2_s[0,0], J_EI_s = J_2x2_s[0,1], 
                               J_IE_s = J_2x2_s[1,0], J_II_s = J_2x2_s[1,1])
             
-    save_params.update(Jm)
-    save_params.update(Js)
+    
+        save_params.update(Js)
     
     if 'c_E' in ssn_layer_pars.keys():
         save_params['c_E'] = ssn_layer_pars['c_E']
@@ -540,7 +543,10 @@ def load_param_from_csv(results_filename, epoch):
     '''
     
     all_results = pd.read_csv(results_filename, header = 0)
-    epoch_params = all_results.loc[all_results['epoch'] == epoch]
+    if epoch == -1:
+        epoch_params = all_results.tail(1)
+    else:
+        epoch_params = all_results.loc[all_results['epoch'] == epoch]
     params = []
     J_m = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_m', 'J_EI_m', 'J_IE_m', 'J_II_m']]
     J_s = [np.abs(epoch_params[i].values[0]) for i in ['J_EE_s', 'J_EI_s', 'J_IE_s', 'J_II_s']]
