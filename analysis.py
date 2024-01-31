@@ -180,7 +180,8 @@ def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
     if 'c_E' in results.columns:
         cs = results[["c_E", "c_I"]]
         cs = cs.to_numpy()
-        print("c ratios = ", np.array((cs[epoch_index,:]/cs[0,:] -1)*100))
+        cs_ratios = np.array((cs[epoch_index,:]/cs[0,:] -1)*100)
+        print("c ratios = ", cs_ratios )
         
     if 'sigma_orisE' in results.columns:
         sigma_oris = results[["sigma_orisE", "sigma_orisI"]]
@@ -195,13 +196,15 @@ def param_ratios_two_layer(results_file, epoch = None, percent_acc = 0.85):
     if 'f_E' in results.columns:
         fs = results[["f_E", "f_I"]]
         fs = fs.to_numpy()
-        print("f ratios = ", np.array((fs[epoch_index,:]/fs[0,:] -1)*100))
+        fs_ratios = np.array((fs[epoch_index,:]/fs[0,:] -1)*100)
+        print("f ratios = ", fs_ratios)
     
     if 'kappa_preE' in results.columns:
         kappas = results[['kappa_preE', 'kappa_preI', 'kappa_postE', 'kappa_postI']]
         kappas = kappas.to_numpy()
         print('kappas = ', kappas[epoch_index, :])
         
+    return J_m_ratios, J_s_ratios, cs_ratios, fs_ratios
         
     
         
@@ -922,3 +925,58 @@ def plot_max_rates(max_rates, epochs_plot = None, save=None):
             plt.savefig(save+'.png')
     plt.show()
     plt.close() 
+
+def reorder_vec(vec):
+    new_vec = np.asarray([vec[0], vec[2], vec[1], vec[3] ])
+    return new_vec
+
+def param_bar_plots(file_lists, plot_filename=None):
+
+    all_J_m = []
+    all_J_s = []
+    #Iterate over the files 
+    for file in file_lists:
+
+        #Calculate ratio at last epoch
+        J_m, J_s, _, _ = param_ratios_two_layer(file, epoch =-1)
+        all_J_m.append(J_m)
+        all_J_s.append(J_s)
+
+    #Stack results for plotting
+    all_J_m = np.vstack(all_J_m)
+    all_J_s = np.vstack(all_J_s)
+
+    #Find mean and standard deviation 
+    mid_means = all_J_m.mean(axis = 0)
+    mid_std = all_J_m.std(axis=0)
+    sup_means = all_J_s.mean(axis = 0)
+    sup_std = all_J_s.std(axis=0)
+
+    print('mid_std',mid_std)
+    reorder_mid_means = reorder_vec(mid_means)
+    reorder_sup_means = reorder_vec(sup_means)
+    reorder_mid_std = reorder_vec(mid_std)
+    reorder_sup_std = reorder_vec(sup_std)
+
+    #Plot middle layer
+    labels_mid = ['J_EE_m', 'J_IE_m', 'J_EI_m', 'J_II_m']
+    color =['red', 'red', 'blue', 'blue']
+    plt.xlabel('Parameter')
+    plt.ylabel('Change during training (%)')
+    plt.bar(labels_mid, reorder_mid_means, yerr = reorder_mid_std, color = color, ecolor = 'black', capsize = 3)
+
+    if plot_filename:
+        plt.savefig(os.path.join(plot_filename+ 'J_mid.png'))
+    plt.show()
+    plt.close()
+
+    #Plot superficial layer
+    labels_sup = ['J_EE_s', 'J_IE_s', 'J_EI_s', 'J_II_s']
+    plt.xlabel('Parameer')
+    plt.ylabel('Change during training (%)')
+    plt.bar(labels_sup, reorder_sup_means, yerr = reorder_sup_std, color = color, ecolor = 'black', capsize = 3)
+
+    if plot_filename:
+        plt.savefig(os.path.join(plot_filename+ 'J_sup.png'))
+    plt.show()
+    plt.close()
