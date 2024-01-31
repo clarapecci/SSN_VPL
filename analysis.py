@@ -926,9 +926,12 @@ def plot_max_rates(max_rates, epochs_plot = None, save=None):
     plt.show()
     plt.close() 
 
-def reorder_vec(vec):
-    new_vec = np.asarray([vec[0], vec[2], vec[1], vec[3] ])
-    return new_vec
+def reorder_vec(vec, new_order):
+    new_vec = []
+    for x in new_order:
+        new_vec.append(vec[x])
+
+    return np.asarray(new_vec)
 
 def param_bar_plots(file_lists, plot_filename=None):
 
@@ -953,10 +956,11 @@ def param_bar_plots(file_lists, plot_filename=None):
     sup_std = all_J_s.std(axis=0)
 
     print('mid_std',mid_std)
-    reorder_mid_means = reorder_vec(mid_means)
-    reorder_sup_means = reorder_vec(sup_means)
-    reorder_mid_std = reorder_vec(mid_std)
-    reorder_sup_std = reorder_vec(sup_std)
+    new_indices = [0, 2, 1, 3]
+    reorder_mid_means = reorder_vec(mid_means, new_indices)
+    reorder_sup_means = reorder_vec(sup_means, new_indices)
+    reorder_mid_std = reorder_vec(mid_std, new_indices)
+    reorder_sup_std = reorder_vec(sup_std, new_indices)
 
     #Plot middle layer
     labels_mid = ['J_EE_m', 'J_IE_m', 'J_EI_m', 'J_II_m']
