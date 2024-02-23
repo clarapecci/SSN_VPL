@@ -3,13 +3,13 @@
 %Specify number of epochs (pre and post training)
 num_epochs = 2;
 
-%Specify number of layers (superficial3 and superficial3)
+%Specify number of layers (superficial and superficial)
 num_layers = 2;
 
 %Specify number of components to use
 PC_used = 15;
 
-%Select labels from data 
+
 
 
 %Initialise empty cells to store results
@@ -34,7 +34,7 @@ for seed_n = 1:20%[4 6 8 10 14 15 17]
                 labels = smooth_all.labels(1:900);
                 for epoch =1:num_epochs
                 
-                %Specify layer (superficial3/superficial3)!!!
+                %Specify layer (superficial/middle)!!!
                curr_data = squeeze(smooth_all.superficial(epoch, :, :));
             
                 %Normalise data
@@ -124,14 +124,14 @@ for seed_n = 1:20%[4 6 8 10 14 15 17]
             finalMPI = [train_MPI.*100, untrain_MPI.*100];
             if count==1
             %Save results
-                superficial3_mahal = cat(2, cell2mat(finalME_results(1)), cell2mat(finalME_results(2)), finalMPI);
-                save('superficial3_mahal.mat', 'superficial3_mahal');
+                superficial_mahal = cat(2, cell2mat(finalME_results(1)), cell2mat(finalME_results(2)), finalMPI);
+                save('superficial_mahal.mat', 'superficial_mahal');
             
             else
-                superficial3_mahal = load('superficial3_mahal.mat');
+                superficial_mahal = load('superficial_mahal.mat');
                 save_results = cat(2, cell2mat(finalME_results(1)), cell2mat(finalME_results(2)), finalMPI);
-                superficial3_mahal = cat(1, superficial3_mahal.superficial3_mahal  , save_results);
-                save('superficial3_mahal.mat', 'superficial3_mahal');
+                superficial_mahal = cat(1, superficial_mahal.superficial_mahal  , save_results);
+                save('superficial_mahal.mat', 'superficial_mahal');
             end
             end 
         end
