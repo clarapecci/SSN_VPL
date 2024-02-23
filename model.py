@@ -7,7 +7,7 @@ from IPython.core.debugger import set_trace
 from SSN_classes_middle import SSN2DTopoV1_ONOFF_local
 from SSN_classes_superficial import SSN2DTopoV1
 from util import  create_grating_single
-
+from pdb import set_trace
 from util import sep_exponentiate, constant_to_vec, sigmoid, binary_loss, homeo_loss
 
 
@@ -269,12 +269,6 @@ jit_freeze_mid = jax.jit(vmap_freeze_mid, static_argnums = [2])
 #Freeze superficial
 vmap_freeze_sup = vmap(ori_discrimination, in_axes = ({'J_2x2_m':None, 'c_E':None, 'c_I':None, 'f_E':None, 'f_I':None}, {'w_sig':None, 'b_sig':None}, None, {'ref':0, 'target':0, 'label':0}, 0, 0) )
 jit_freeze_sup = jax.jit(vmap_freeze_sup, static_argnums = [2])
-
-
-
-
-
-
 
 
 
